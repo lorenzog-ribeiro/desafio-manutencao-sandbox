@@ -8,8 +8,10 @@ import { IncomingIssueEvent, EventAcceptedResponse, TriageResult, GitHubRepo, Gi
 })
 export class TriageApiService {
   private readonly http = inject(HttpClient);
-  // Backend .NET 10 API rodando em localhost:5012
-  private readonly baseUrl = 'http://localhost:5012';
+  // Em desenvolvimento local (ng serve na porta 4200), conecta a http://localhost:5012.
+  // Em produção/Docker (Dokploy), usa caminho relativo '' (via proxy reverso Nginx) ou window.__API_URL__
+  private readonly baseUrl = (typeof window !== 'undefined' && (window as any).__API_URL__)
+    || (typeof window !== 'undefined' && window.location.port === '4200' ? 'http://localhost:5012' : '');
 
   public readonly recentJobs = signal<TriageResult[]>([]);
   public readonly jobsLoaded = signal<boolean>(false);

@@ -1,0 +1,90 @@
+version: '3.8'
+
+services:
+  # ========================================================
+  # 1. Banco de Dados PostgreSQL (com volume persistente)
+  # ========================================================
+  postgres:
+    image: postgres:16-alpine
+    container_name: autotriage-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-triage_db}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-triage_db}']
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - autotriage-net
+
+  # ========================================================
+  # 2. Backend .NET 10 Web API (Recebe Webhooks e atende UI)
+  # ========================================================
+  api:
+    build:
+      context: ./desafio-api
+      dockerfile: Dockerfile.api
+    container_name: autotriage-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-triage_db};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      GitHub__WebhookSecret: ${GITHUB_WEBHOOK_SECRET:-}
+      Cors__AllowedOrigins: "*"
+    expose:
+      - '5012'
+    networks:
+      - autotriage-net
+
+  # ========================================================
+  # 3. Background Worker (Processa jobs da fila e aciona IA)
+  # ========================================================
+  worker:
+    build:
+      context: ./desafio-api
+      dockerfile: Dockerfile.worker
+    container_name: autotriage-worker
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-triage_db};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+      GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+    networks:
+      - autotriage-net
+
+  # ========================================================
+  # 4. Frontend Angular (Servido por Nginx com Reverse Proxy)
+  # ========================================================
+  frontend:
+    build:
+      context: ./desafio-app
+      dockerfile: Dockerfile
+    container_name: autotriage-frontend
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "${FRONTEND_PORT:-80}:80"
+    networks:
+      - autotriage-net
+
+volumes:
+  postgres_data:
+    name: autotriage_postgres_data
+
+networks:
+  autotriage-net:
+    name: autotriage_network
+    driver: bridge

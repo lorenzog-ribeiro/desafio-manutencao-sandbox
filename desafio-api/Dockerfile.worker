@@ -1,0 +1,21 @@
+FROM mcr.microsoft.com/dotnet/sdk:10.0-preview AS build
+WORKDIR /src
+
+COPY ["SoftwareTriage.slnx", "./"]
+COPY ["src/Core.Domain/*.csproj", "src/Core.Domain/"]
+COPY ["src/Core.Application/*.csproj", "src/Core.Application/"]
+COPY ["src/Infra.Data/*.csproj", "src/Infra.Data/"]
+COPY ["src/Infra.GitHub/*.csproj", "src/Infra.GitHub/"]
+COPY ["src/Worker/*.csproj", "src/Worker/"]
+
+RUN dotnet restore src/Worker/Worker.csproj
+
+COPY . .
+WORKDIR /src/src/Worker
+RUN dotnet publish -c Release -o /app/publish --no-restore
+
+FROM mcr.microsoft.com/dotnet/runtime:10.0-preview AS runtime
+WORKDIR /app
+COPY --from=build /app/publish .
+
+ENTRYPOINT ["dotnet", "SoftwareTriage.Worker.dll"]
