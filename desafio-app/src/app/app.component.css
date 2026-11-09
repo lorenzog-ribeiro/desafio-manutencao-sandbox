@@ -1,0 +1,97 @@
+.app-layout {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: #f8fafc;
+  color: #0f172a;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+.navbar {
+  background-color: #0f172a;
+  color: white;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.85rem 2rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.nav-brand {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.logo-icon {
+  font-size: 1.35rem;
+}
+
+.brand-name {
+  font-size: 1.15rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.badge-runtime {
+  background: #334155;
+  color: #94a3b8;
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.nav-links {
+  display: flex;
+  align-items: center;
+  gap: 1.25rem;
+}
+
+.nav-links a {
+  color: #94a3b8;
+  text-decoration: none;
+  font-weight: 500;
+  font-size: 0.9rem;
+  padding: 0.4rem 0.75rem;
+  border-radius: 4px;
+  transition: all 0.15s ease;
+}
+
+.nav-links a:hover {
+  color: white;
+  background: #1e293b;
+}
+
+.nav-links a.active {
+  color: white;
+  background: #2563eb;
+}
+
+.connection-status {
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #14532d;
+  color: #86efac;
+  padding: 0.25rem 0.6rem;
+  border-radius: 9999px;
+  border: 1px solid #166534;
+}
+
+.main-content {
+  flex: 1;
+  max-width: 1200px;
+  width: 100%;
+  margin: 0 auto;
+  padding: 2rem;
+  box-sizing: border-box;
+}
+
+.footer {
+  text-align: center;
+  padding: 1.25rem;
+  color: #64748b;
+  font-size: 0.85rem;
+  border-top: 1px solid #e2e8f0;
+  background: white;
+}

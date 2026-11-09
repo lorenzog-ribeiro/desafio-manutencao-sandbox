@@ -1,0 +1,21 @@
+<div class="app-layout">
+  <nav class="navbar">
+    <div class="nav-brand">
+      <span class="logo-icon">⚡</span>
+      <span class="brand-name">Software Triage Hub</span>
+      <span class="badge-runtime">.NET 10 • Clean Architecture</span>
+    </div>
+    <div class="nav-links">
+      <a routerLink="/dashboard" routerLinkActive="active">Painel & Repositórios</a>
+      <span class="connection-status">🟢 API :5012</span>
+    </div>
+  </nav>
+
+  <main class="main-content">
+    <router-outlet></router-outlet>
+  </main>
+
+  <footer class="footer">
+    <p>Software Triage Hub • Triagem Autônoma de Issues com Clean Architecture & DDD</p>
+  </footer>
+</div>

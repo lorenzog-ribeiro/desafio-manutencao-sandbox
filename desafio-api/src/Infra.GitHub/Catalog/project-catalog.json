@@ -1,0 +1,26 @@
+[
+  {
+    "repository": "lorenzog-ribeiro/desafio-manutencao-sandbox",
+    "maintainer": "lorenzog-ribeiro",
+    "triageGuidelines": "Priorize bugs reproduzíveis com logs claros. Valide impactos no runtime .NET 10 e frontend Angular 17. Não assuma causas sem rastreamento de erro.",
+    "isActive": true
+  },
+  {
+    "repository": "lorenzog-ribeiro/PerfilRiscoInvestidor",
+    "maintainer": "lorenzog-ribeiro",
+    "triageGuidelines": "Projeto Next.js / NestJs / TypeScript. Validar tipagem, estrutura de dados dos tradeoffs e regras de imutabilidade.",
+    "isActive": true
+  },
+  {
+    "repository": "EducandoSeuBolso/landing-page",
+    "maintainer": "EducandoSeuBolso",
+    "triageGuidelines": "Projeto frontend/landing page. Validar responsividade e SEO.",
+    "isActive": true
+  },
+  {
+    "repository": "kipperacademy/desafio-manutencao-sandbox",
+    "maintainer": "kipperacademy",
+    "triageGuidelines": "Verifique compatibilidade com arquitetura limpa, DDD puro e fluxo assíncrono entre API e Worker.",
+    "isActive": true
+  }
+]

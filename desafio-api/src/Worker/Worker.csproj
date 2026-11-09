@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk.Worker">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UserSecretsId>dotnet-Worker-1573b622-6b9f-4e8d-84cc-5a1f6b5f8857</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.EntityFrameworkCore.Design" Version="10.0.14">
+      <IncludeAssets>runtime; build; native; contentfiles; analyzers; buildtransitive</IncludeAssets>
+      <PrivateAssets>all</PrivateAssets>
+    </PackageReference>
+    <PackageReference Include="Microsoft.Extensions.Hosting" Version="10.0.14" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Core.Domain\Core.Domain.csproj" />
+    <ProjectReference Include="..\Core.Application\Core.Application.csproj" />
+    <ProjectReference Include="..\Infra.Data\Infra.Data.csproj" />
+    <ProjectReference Include="..\Infra.GitHub\Infra.GitHub.csproj" />
+  </ItemGroup>
+</Project>

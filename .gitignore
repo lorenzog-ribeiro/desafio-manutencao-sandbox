@@ -1,0 +1,25 @@
+# Environment & Secrets
+.env
+.env.*
+!.env.example
+appsettings.Development.json
+*.user
+*.suo
+
+# Build & Dependencies .NET
+**/bin/
+**/obj/
+.vs/
+*.sln.DotSettings*
+
+# Node / Angular
+**/node_modules/
+**/dist/
+.angular/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS
+.DS_Store
+Thumbs.db
