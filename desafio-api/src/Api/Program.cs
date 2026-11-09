@@ -114,6 +114,7 @@ app.MapPost("/events", async (
 app.MapPost("/webhooks/github", async (
     HttpRequest request,
     [FromServices] ReceiveEventUseCase useCase,
+    [FromServices] ITriageJobRepository triageJobRepo,
     [FromServices] IConfiguration configuration,
     [FromServices] ILogger<Program> logger,
     CancellationToken cancellationToken) =>
@@ -155,11 +156,21 @@ app.MapPost("/webhooks/github", async (
             return Results.BadRequest(new { error = "Missing issue or repository object in webhook payload." });
         }
 
-        string[] triageableActions = ["opened", "reopened", "edited", "labeled"];
+        string[] triageableActions = ["opened", "reopened"];
         if (!triageableActions.Contains(payload.Action, StringComparer.OrdinalIgnoreCase))
         {
             logger.LogInformation("Ignoring non-triageable issue action '{Action}'.", payload.Action);
             return Results.Ok(new { message = $"Action '{payload.Action}' ignored." });
+        }
+
+        // Check if already triaged recently to prevent duplicate webhook delivery execution
+        var existingJob = await triageJobRepo.GetByRepoAndNumberAsync(payload.Repository.FullName, payload.Issue.Number, cancellationToken);
+        if (existingJob is not null && (existingJob.Status == SoftwareTriage.Core.Domain.ValueObjects.TriageStatus.Accepted ||
+                                       existingJob.Status == SoftwareTriage.Core.Domain.ValueObjects.TriageStatus.Processing ||
+                                       existingJob.PublishedAt.HasValue && DateTime.UtcNow - existingJob.PublishedAt.Value < TimeSpan.FromMinutes(2)))
+        {
+            logger.LogInformation("Issue #{IssueNumber} in '{Repo}' was already triaged recently. Skipping duplicate comment.", payload.Issue.Number, payload.Repository.FullName);
+            return Results.Ok(new { message = $"Issue #{payload.Issue.Number} was already triaged recently." });
         }
 
         var eventId = !string.IsNullOrWhiteSpace(deliveryId)

@@ -1,97 +1,163 @@
 .app-layout {
   min-height: 100vh;
-  display: flex;
-  flex-direction: column;
-  background-color: #f8fafc;
-  color: #0f172a;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  background: var(--bg);
 }
 
-.navbar {
-  background-color: #0f172a;
-  color: white;
+.app-header {
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  backdrop-filter: blur(8px);
+}
+
+.header-inner {
+  max-width: 1360px;
+  margin: 0 auto;
+  padding: 14px 28px;
   display: flex;
+  align-items: center;
   justify-content: space-between;
-  align-items: center;
-  padding: 0.85rem 2rem;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  gap: 16px;
 }
 
-.nav-brand {
+.brand {
   display: flex;
   align-items: center;
-  gap: 0.75rem;
+  gap: 12px;
 }
 
-.logo-icon {
-  font-size: 1.35rem;
+.brand-logo {
+  width: 38px;
+  height: 38px;
+  min-width: 38px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--primary), var(--ai));
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  box-shadow: 0 2px 8px rgba(79, 70, 229, 0.25);
+}
+
+.brand-text {
+  display: flex;
+  align-items: center;
 }
 
 .brand-name {
   font-size: 1.15rem;
   font-weight: 700;
   letter-spacing: -0.02em;
+  color: var(--text-strong);
 }
 
-.badge-runtime {
-  background: #334155;
-  color: #94a3b8;
-  padding: 0.2rem 0.5rem;
-  border-radius: 4px;
-  font-size: 0.75rem;
-  font-weight: 600;
-}
-
-.nav-links {
+.main-nav {
   display: flex;
   align-items: center;
-  gap: 1.25rem;
+  gap: 8px;
 }
 
-.nav-links a {
-  color: #94a3b8;
+.nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 40px;
+  padding: 0 16px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-secondary);
+  font: 600 14px var(--font-sans);
   text-decoration: none;
-  font-weight: 500;
-  font-size: 0.9rem;
-  padding: 0.4rem 0.75rem;
-  border-radius: 4px;
   transition: all 0.15s ease;
+  white-space: nowrap;
 }
 
-.nav-links a:hover {
-  color: white;
-  background: #1e293b;
+.nav:hover {
+  color: var(--text);
+  background: var(--surface-muted);
 }
 
-.nav-links a.active {
-  color: white;
-  background: #2563eb;
-}
-
-.connection-status {
-  font-size: 0.75rem;
-  font-weight: 600;
-  background: #14532d;
-  color: #86efac;
-  padding: 0.25rem 0.6rem;
-  border-radius: 9999px;
-  border: 1px solid #166534;
+.nav-on,
+.nav-on:hover {
+  color: var(--primary-hover);
+  background: var(--primary-soft);
+  border-color: var(--primary-border);
 }
 
 .main-content {
-  flex: 1;
-  max-width: 1200px;
-  width: 100%;
+  max-width: 1360px;
   margin: 0 auto;
-  padding: 2rem;
+  padding: 28px 28px 72px;
   box-sizing: border-box;
 }
 
-.footer {
-  text-align: center;
-  padding: 1.25rem;
-  color: #64748b;
-  font-size: 0.85rem;
-  border-top: 1px solid #e2e8f0;
-  background: white;
+/* =========================================================
+   RESPONSIVIDADE MULTIPLATAFORMA
+   ========================================================= */
+
+/* Tablets / Telas Médias (<= 768px) */
+@media (max-width: 768px) {
+  .header-inner {
+    flex-direction: column;
+    align-items: stretch;
+    padding: 12px 16px;
+    gap: 12px;
+  }
+  
+  .brand {
+    justify-content: flex-start;
+  }
+
+  .main-nav {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    width: 100%;
+    gap: 8px;
+  }
+
+  .nav {
+    justify-content: center;
+    padding: 0 10px;
+    font-size: 13.5px;
+    min-height: 38px;
+  }
+
+  .main-content {
+    padding: 20px 16px 56px;
+  }
+}
+
+/* Smartphones (<= 480px) */
+@media (max-width: 480px) {
+  .header-inner {
+    padding: 10px 12px;
+    gap: 10px;
+  }
+
+  .brand-logo {
+    width: 34px;
+    height: 34px;
+    min-width: 34px;
+  }
+
+  .brand-name {
+    font-size: 1.05rem;
+  }
+
+  .main-nav {
+    gap: 6px;
+  }
+
+  .nav {
+    font-size: 12.5px;
+    gap: 5px;
+    padding: 0 8px;
+  }
+
+  .main-content {
+    padding: 16px 12px 48px;
+  }
 }

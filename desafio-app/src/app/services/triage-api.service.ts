@@ -1,6 +1,6 @@
 import { Injectable, inject, signal } from '@angular/core';
-import { HttpClient } from '@angular/common/http';
-import { Observable, tap, catchError, of } from 'rxjs';
+import { HttpClient, HttpResponse } from '@angular/common/http';
+import { Observable, tap, catchError, of, map } from 'rxjs';
 import { IncomingIssueEvent, EventAcceptedResponse, TriageResult, GitHubRepo, GitHubIssue } from '../models/triage.model';
 
 @Injectable({
@@ -12,6 +12,9 @@ export class TriageApiService {
   private readonly baseUrl = 'http://localhost:5012';
 
   public readonly recentJobs = signal<TriageResult[]>([]);
+  public readonly jobsLoaded = signal<boolean>(false);
+  public readonly freshEventIds = signal<ReadonlySet<string>>(new Set());
+  public readonly apiOnline = signal<boolean | null>(null);
   public readonly gitHubRepos = signal<GitHubRepo[]>([]);
   public readonly selectedRepoIssues = signal<GitHubIssue[]>([]);
   public readonly selectedRepo = signal<string | null>(null);
@@ -21,17 +24,37 @@ export class TriageApiService {
   public readonly isTriagingIssue = signal<number | null>(null);
   public readonly error = signal<string | null>(null);
 
+  public checkHealth(): void {
+    this.http.get(`${this.baseUrl}/health`).pipe(
+      map(() => true),
+      catchError(() => of(false))
+    ).subscribe((online) => this.apiOnline.set(online));
+  }
+
   public loadRecentJobs(): Observable<TriageResult[]> {
+    this.isLoading.set(true);
     return this.http.get<TriageResult[]>(`${this.baseUrl}/jobs`).pipe(
       tap((jobs) => {
+        if (this.jobsLoaded()) {
+          this.markNewJobsAsFresh(jobs);
+        }
         this.recentJobs.set(jobs);
+        this.jobsLoaded.set(true);
         this.error.set(null);
+        this.isLoading.set(false);
       }),
       catchError((err) => {
         console.error('Falha ao consultar jobs no backend:', err);
         this.error.set('Não foi possível conectar ao backend na porta 5012. Certifique-se de que a API está rodando.');
+        this.isLoading.set(false);
         return of([] as TriageResult[]);
       })
+    );
+  }
+
+  public submitEvent(event: IncomingIssueEvent): Observable<HttpResponse<EventAcceptedResponse>> {
+    return this.http.post<EventAcceptedResponse>(`${this.baseUrl}/events`, event, { observe: 'response' }).pipe(
+      tap(() => this.loadRecentJobs().subscribe())
     );
   }
 
@@ -41,6 +64,14 @@ export class TriageApiService {
         const msg = err.error?.error || err.message || 'Resultado de triagem não encontrado.';
         throw new Error(msg);
       })
+    );
+  }
+
+  /** The API only lists open issues, so closed or simulated issues resolve to null. */
+  public findOpenIssue(owner: string, repo: string, issueNumber: number): Observable<GitHubIssue | null> {
+    return this.http.get<GitHubIssue[]>(`${this.baseUrl}/github/repos/${owner}/${repo}/issues`).pipe(
+      map((issues) => issues.find((issue) => issue.number === issueNumber) ?? null),
+      catchError(() => of(null))
     );
   }
 
@@ -87,7 +118,7 @@ export class TriageApiService {
   public triggerIssueTriage(owner: string, repo: string, issueNumber: number): Observable<TriageResult> {
     this.isTriagingIssue.set(issueNumber);
     return this.http.post<TriageResult>(`${this.baseUrl}/github/repos/${owner}/${repo}/issues/${issueNumber}/triage`, {}).pipe(
-      tap((result) => {
+      tap(() => {
         this.isTriagingIssue.set(null);
         this.loadRecentJobs().subscribe();
       }),
@@ -104,5 +135,13 @@ export class TriageApiService {
     return this.recentJobs().find(
       j => j.repository.toLowerCase() === repository.toLowerCase() && j.issueNumber === issueNumber
     );
+  }
+
+  private markNewJobsAsFresh(jobs: TriageResult[]): void {
+    const known = new Set(this.recentJobs().map((job) => job.eventId));
+    const added = jobs.filter((job) => !known.has(job.eventId));
+    if (added.length > 0) {
+      this.freshEventIds.update((fresh) => new Set([...fresh, ...added.map((job) => job.eventId)]));
+    }
   }
 }

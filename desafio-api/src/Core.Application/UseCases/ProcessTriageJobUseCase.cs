@@ -21,9 +21,18 @@ public sealed class ProcessTriageJobUseCase(
         }
 
         // Idempotency check: Do not re-process already published jobs
-        if (job.Status == TriageStatus.Published)
+        if (job.Status == TriageStatus.Published || job.Status == TriageStatus.HumanReviewRequired || job.PublishedAt.HasValue)
         {
-            logger.LogInformation("Triage job '{JobId}' is already published. Skipping.", jobId);
+            logger.LogInformation("Triage job '{JobId}' is already finalized. Skipping.", jobId);
+            return;
+        }
+
+        // Secondary idempotency check: Has another job for the same (Repository, IssueNumber) already published a comment?
+        var existingPublished = await repository.GetByRepoAndNumberAsync(job.Repository, job.IssueNumber, cancellationToken);
+        if (existingPublished is not null && existingPublished.Id != job.Id && existingPublished.PublishedAt.HasValue)
+        {
+            logger.LogInformation("Another job '{OtherId}' has already published a triage comment for '{Repository}#{IssueNumber}'. Skipping duplicate publish.",
+                existingPublished.Id, job.Repository, job.IssueNumber);
             return;
         }
 

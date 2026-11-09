@@ -1,568 +1,328 @@
-import { Component, OnInit, OnDestroy, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
-import { Router, RouterLink } from '@angular/router';
+import { Component, computed, inject, signal } from '@angular/core';
+import { DatePipe } from '@angular/common';
+import { FormsModule } from '@angular/forms';
+import { RouterLink } from '@angular/router';
 import { TriageApiService } from '../../services/triage-api.service';
-import { GitHubRepo, GitHubIssue, TriageResult } from '../../models/triage.model';
+import { CategoryFilter, CategoryKey, toTriageView } from '../../models/triage-view';
 
 @Component({
   selector: 'app-dashboard',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [DatePipe, FormsModule, RouterLink],
   template: `
-    <div class="dashboard-container">
-      <!-- Barra de Status do Sistema -->
-      <div class="system-status-bar">
-        <div class="status-item">
-          <span class="status-dot green"></span>
-          <span class="status-label">Backend .NET 10:</span>
-          <strong>localhost:5012</strong>
+    <div class="page">
+      <div class="dash-head">
+        <div class="page-head">
+          <div class="eyebrow">Visão principal</div>
+          <h1 class="page-title">Fila de Triagem</h1>
+          <p class="page-lede">Eventos de issues recebidos do GitHub, classificados pelos agentes especialistas.</p>
         </div>
-        <div class="status-item">
-          <span class="status-dot green"></span>
-          <span class="status-label">PostgreSQL:</span>
-          <strong>triage_db</strong>
-        </div>
-        <div class="status-item">
-          <span class="status-dot green"></span>
-          <span class="status-label">GitHub:</span>
-          <strong>Autenticado (PAT)</strong>
-        </div>
-        <div class="status-item">
-          <span class="status-dot green"></span>
-          <span class="status-label">AI Harness:</span>
-          <strong>Router + Especialistas</strong>
+        <div class="dash-actions">
+          <button type="button" class="btn btn-secondary" (click)="refresh()" [disabled]="api.isLoading()">
+            <span class="material-symbols-outlined icon-sm" aria-hidden="true">sync</span>
+            Atualizar
+          </button>
+          <a class="btn btn-primary" routerLink="/catalog">
+            <span class="material-symbols-outlined icon-sm" aria-hidden="true">menu_book</span>
+            Ver Catálogo
+          </a>
         </div>
       </div>
 
-      <!-- Cabeçalho -->
-      <header class="page-header">
-        <div>
-          <h2>Painel Operacional de Triagem com IA</h2>
-          <p class="subtitle">Monitoramento em tempo real de issues do GitHub, fila do PostgreSQL e agentes especialistas</p>
-        </div>
-        <div class="header-actions">
-          <button class="btn btn-secondary" (click)="refresh()" [disabled]="api.isLoading() || api.isLoadingGitHub()">
-            🔄 Atualizar Dados
-          </button>
-          <button class="btn btn-github" (click)="toggleWebhookInfo()">
-            ⚙️ Webhook GitHub
-          </button>
-        </div>
-      </header>
-
-      <!-- Instruções do Webhook -->
-      @if (showWebhookGuide()) {
-        <div class="webhook-banner">
-          <div class="webhook-header">
-            <h3>⚙️ Webhook do GitHub para Triagem 100% Automática</h3>
-            <button class="btn-close" (click)="toggleWebhookInfo()">✕</button>
-          </div>
-          <p>Para triagem autônoma sempre que uma nova issue for aberta na sua conta, configure no GitHub em <strong>Settings → Webhooks → Add webhook</strong>:</p>
-          <div class="webhook-config-box">
-            <div><strong>Payload URL:</strong> <code>https://&lt;seu-dominio-ou-tunnel-publico&gt;/webhooks/github</code></div>
-            <div><strong>Content type:</strong> <code>application/json</code></div>
-            <div><strong>Events:</strong> Selecione <em>"Let me select individual events"</em> e marque <strong>Issues</strong>.</div>
-          </div>
-        </div>
+      @if (api.error(); as error) {
+        <div class="notice notice-error" role="alert">{{ error }}</div>
       }
 
-      <!-- Mensagens de Erro -->
-      @if (api.error()) {
-        <div class="alert alert-danger">
-          ⚠️ {{ api.error() }}
-        </div>
-      }
-
-      <!-- Indicadores de Métricas Reais do PostgreSQL -->
-      <div class="metrics-grid">
-        <div class="metric-card">
-          <span class="metric-label">Total de Jobs Registrados</span>
-          <span class="metric-value">{{ api.recentJobs().length }}</span>
-        </div>
-        <div class="metric-card status-accepted">
-          <span class="metric-label">Aceitos / Na Fila</span>
-          <span class="metric-value">{{ countByStatus('Accepted') }}</span>
-        </div>
-        <div class="metric-card status-processing">
-          <span class="metric-label">Em Processamento</span>
-          <span class="metric-value">{{ countByStatus('Processing') }}</span>
-        </div>
-        <div class="metric-card status-published">
-          <span class="metric-label">Publicados no GitHub</span>
-          <span class="metric-value">{{ countByStatus('Published') }}</span>
-        </div>
-        <div class="metric-card status-review">
-          <span class="metric-label">Revisão Humana</span>
-          <span class="metric-value">{{ countByStatus('HumanReviewRequired') }}</span>
-        </div>
+      <div class="metrics">
+        @for (metric of metrics(); track metric.key) {
+          <button
+            type="button"
+            class="metric"
+            [class.metric-on]="filter() === metric.key"
+            [attr.aria-label]="'Filtrar por ' + metric.label + ': ' + metric.value"
+            (click)="filter.set(metric.key)">
+            <span class="metric-label"><span class="md" [class]="'md md-' + metric.key"></span>{{ metric.label }}</span>
+            <span class="metric-value">{{ metric.value }}</span>
+            <span class="mono metric-hint">{{ metric.hint }}</span>
+          </button>
+        }
       </div>
 
-      <!-- Seção: Repositórios Reais do GitHub -->
-      <section class="github-section">
-        <div class="section-title-row">
-          <div>
-            <h3>📦 Repositórios da Conta GitHub</h3>
-            <p>Carregados dinamicamente via Octokit. Selecione um repositório para inspecionar e disparar a IA.</p>
-          </div>
-          <button class="btn btn-secondary btn-sm" (click)="loadRepos()" [disabled]="api.isLoadingGitHub()">
-            {{ api.isLoadingGitHub() ? 'Sincronizando...' : '🔄 Sincronizar Repositórios' }}
-          </button>
-        </div>
-
-        @if (api.gitHubRepos().length > 0) {
-          <div class="repos-grid">
-            @for (repo of api.gitHubRepos(); track repo.id) {
-              <div 
-                class="repo-card" 
-                [class.selected]="api.selectedRepo() === repo.fullName"
-                (click)="selectRepository(repo)">
-                <div class="repo-card-header">
-                  <strong>{{ repo.name }}</strong>
-                  <span class="badge badge-issues">{{ repo.openIssuesCount }} issues</span>
-                </div>
-                <p class="repo-full-name"><code>{{ repo.fullName }}</code></p>
-                <div class="repo-card-footer">
-                  <span class="privacy-badge">{{ repo.isPrivate ? '🔒 Privado' : '🌐 Público' }}</span>
-                  <span class="action-text">
-                    {{ api.selectedRepo() === repo.fullName ? '● Selecionado' : 'Selecionar →' }}
-                  </span>
-                </div>
-              </div>
+      <section class="card queue">
+        <div class="toolbar">
+          <div class="chips">
+            @for (chip of chips(); track chip.key) {
+              <button type="button" class="chip" [class.chip-on]="filter() === chip.key" (click)="filter.set(chip.key)">
+                {{ chip.label }} <span class="cnt">{{ chip.count }}</span>
+              </button>
             }
           </div>
-        } @else if (api.isLoadingGitHub()) {
-          <div class="empty-state">
-            <p>Consultando repositórios na API do GitHub...</p>
+          <div class="search">
+            <label for="search" class="visually-hidden">Buscar eventos</label>
+            <span class="material-symbols-outlined icon-sm search-icon" aria-hidden="true">search</span>
+            <input
+              id="search"
+              class="input"
+              type="search"
+              placeholder="Buscar repositório, #issue ou título"
+              [ngModel]="search()"
+              (ngModelChange)="search.set($event)">
           </div>
-        }
+        </div>
 
-        <!-- Issues do Repositório Selecionado -->
-        @if (api.selectedRepo(); as currentRepo) {
-          <div class="issues-panel">
-            <div class="issues-header">
-              <div>
-                <h4>Issues em <code>{{ currentRepo }}</code></h4>
-                <p class="sub-header">Veja abaixo o status de triagem no PostgreSQL e comente com a IA em 1 clique</p>
-              </div>
-              <span class="issues-count">{{ api.selectedRepoIssues().length }} issues abertas</span>
+        <div class="table-scroll">
+          <div class="table">
+            <div class="row-head">
+              <div>Repositório</div><div>Issue</div><div>Categoria</div><div>Estado</div><div>Ação no GitHub</div><div class="align-right">Ação</div>
             </div>
 
-            @if (api.isLoadingGitHub()) {
-              <p class="loading-text">Carregando issues do GitHub...</p>
-            } @else if (api.selectedRepoIssues().length === 0) {
-              <div class="empty-issues">
-                <p>Nenhuma issue aberta encontrada em <code>{{ currentRepo }}</code>.</p>
-              </div>
-            } @else {
-              <div class="issues-list">
-                @for (issue of api.selectedRepoIssues(); track issue.id) {
-                  @let job = getJob(currentRepo, issue.number);
-                  <div class="issue-item" [class.item-triaged]="!!job">
-                    <div class="issue-info">
-                      <div class="issue-title-row">
-                        <span class="issue-number">#{{ issue.number }}</span>
-                        <a [href]="issue.htmlUrl" target="_blank" class="issue-link" title="Abrir no GitHub">
-                          {{ issue.title }} ↗
-                        </a>
-                        @if (job) {
-                          <span class="badge" [ngClass]="getStatusBadgeClass(job.status)">
-                            {{ getStatusLabel(job.status) }}
-                          </span>
-                          @if (job.category) {
-                            <span class="badge badge-category">{{ job.category }}</span>
-                          }
-                        } @else {
-                          <span class="badge badge-untriaged">Não Triada</span>
-                        }
-                      </div>
-
-                      <p class="issue-body-preview">{{ getPreview(issue.body) }}</p>
-
-                      @if (job && job.problemSummary) {
-                        <div class="job-preview-box">
-                          <strong>Diagnóstico da IA:</strong> {{ job.problemSummary }}
-                        </div>
-                      }
-
-                      <span class="issue-meta">
-                        Aberta por <strong>{{ issue.author || 'autor' }}</strong> em {{ issue.createdAt | date:'dd/MM/yyyy HH:mm' }}
-                      </span>
-                    </div>
-
-                    <div class="issue-actions">
-                      @if (job) {
-                        <a [routerLink]="['/issues', getOwner(currentRepo), getRepo(currentRepo), issue.number]" class="btn btn-secondary btn-sm">
-                          🔍 Ver Análise Completa
-                        </a>
-                        <button 
-                          class="btn btn-outline-triage btn-sm" 
-                          (click)="triageIssue(issue.number)" 
-                          [disabled]="api.isTriagingIssue() === issue.number">
-                          {{ api.isTriagingIssue() === issue.number ? '⏳ Enviando...' : '⚡ Re-triar' }}
-                        </button>
-                      } @else {
-                        <button 
-                          class="btn btn-action-triage" 
-                          (click)="triageIssue(issue.number)" 
-                          [disabled]="api.isTriagingIssue() === issue.number">
-                          {{ api.isTriagingIssue() === issue.number ? '⏳ Enviando...' : '⚡ Triar com IA' }}
-                        </button>
-                      }
-                    </div>
+            @for (row of rows(); track row.job.eventId) {
+              <div class="row" [class.row-fresh]="api.freshEventIds().has(row.job.eventId)">
+                <div class="cell-min">
+                  <div class="mono cell-owner">{{ row.owner }}/</div>
+                  <div class="mono cell-repo">{{ row.repoName }}</div>
+                </div>
+                <div class="cell-min cell-issue">
+                  <div class="issue-line">
+                    <span class="mono issue-number">{{ row.numberLabel }}</span>
+                    <span class="issue-title">{{ row.job.title }}</span>
                   </div>
-                }
+                  <span class="mono cell-sub">
+                    @if (row.job.publishedAt) {
+                      publicado em {{ row.job.publishedAt | date: 'dd/MM/yyyy HH:mm:ss' }}
+                    } @else {
+                      {{ row.job.eventId }}
+                    }
+                  </span>
+                </div>
+                <div>
+                  <span class="badge" [class]="'badge ' + row.catClass">
+                    @if (row.classified) {
+                      <span class="dot"></span>
+                    } @else {
+                      <span class="material-symbols-outlined icon-xs spin" aria-hidden="true">progress_activity</span>
+                    }
+                    {{ row.catLabel }}
+                  </span>
+                </div>
+                <div><span [class]="'st ' + row.statusClass">{{ row.statusLabel }}</span></div>
+                <div>
+                  <span class="gh" [class]="'gh gh-' + row.github">
+                    @switch (row.github) {
+                      @case ('published') {
+                        <span class="material-symbols-outlined icon-sm" aria-hidden="true">check</span>
+                      }
+                      @case ('blocked') {
+                        <span class="material-symbols-outlined icon-sm" aria-hidden="true">block</span>
+                      }
+                      @default {
+                        <span class="material-symbols-outlined icon-sm spin" aria-hidden="true">progress_activity</span>
+                      }
+                    }
+                    {{ row.githubLabel }}
+                  </span>
+                </div>
+                <div class="align-right">
+                  <a class="btn btn-sm" [routerLink]="row.detailLink">Inspecionar detalhes</a>
+                </div>
               </div>
             }
+          </div>
+        </div>
+
+        @if (!api.jobsLoaded() && !api.error()) {
+          <div class="empty"><p>Carregando eventos…</p></div>
+        } @else if (rows().length === 0) {
+          <div class="empty">
+            <svg width="120" height="88" viewBox="0 0 120 88" fill="none" aria-hidden="true">
+              <rect x="14" y="18" width="92" height="58" rx="10" stroke="#CBD5E1" stroke-width="1.5" stroke-dasharray="4 4"></rect>
+              <rect x="26" y="30" width="44" height="6" rx="3" fill="#E2E8F0"></rect>
+              <rect x="26" y="44" width="68" height="6" rx="3" fill="#F1F5F9"></rect>
+              <rect x="26" y="58" width="32" height="6" rx="3" fill="#F1F5F9"></rect>
+              <circle cx="88" cy="22" r="14" fill="#FFFFFF" stroke="#7C3AED" stroke-width="1.5"></circle>
+              <path d="m83 17 10 10M93 17 83 27" stroke="#7C3AED" stroke-width="1.8" stroke-linecap="round"></path>
+            </svg>
+            <div class="empty-title">Nenhum evento corresponde ao filtro</div>
+            <p>Ajuste a categoria ou a busca, ou dispare um evento de teste para ver a triagem acontecer em tempo real.</p>
+            <div class="empty-actions">
+              <button type="button" class="btn btn-sm" (click)="clearFilters()">Limpar filtros</button>
+            </div>
           </div>
         }
       </section>
-
-      <!-- Tabela Histórico Geral de Triagens (PostgreSQL) -->
-      <div class="table-container">
-        <div class="table-header">
-          <h3>Histórico de Triagens no PostgreSQL</h3>
-          <p>Registro imutável de todas as issues processadas pelo Worker e publicadas no GitHub</p>
-        </div>
-
-        @if (api.recentJobs().length === 0) {
-          <div class="empty-state">
-            <p>Nenhuma triagem registrada no banco de dados ainda.</p>
-          </div>
-        } @else {
-          <table class="triage-table">
-            <thead>
-              <tr>
-                <th>Repositório</th>
-                <th>Issue</th>
-                <th>Título</th>
-                <th>Status</th>
-                <th>Categoria</th>
-                <th>Publicado em</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody>
-              @for (job of api.recentJobs(); track job.eventId) {
-                <tr>
-                  <td><code>{{ job.repository }}</code></td>
-                  <td><strong>#{{ job.issueNumber }}</strong></td>
-                  <td class="td-title">{{ job.title }}</td>
-                  <td>
-                    <span class="badge" [ngClass]="getStatusBadgeClass(job.status)">
-                      {{ getStatusLabel(job.status) }}
-                    </span>
-                  </td>
-                  <td>{{ job.category || '—' }}</td>
-                  <td>{{ job.publishedAt ? (job.publishedAt | date:'dd/MM/yyyy HH:mm:ss') : '—' }}</td>
-                  <td>
-                    <a [routerLink]="['/issues', getOwner(job.repository), getRepo(job.repository), job.issueNumber]" class="btn-link">
-                      Ver Análise →
-                    </a>
-                  </td>
-                </tr>
-              }
-            </tbody>
-          </table>
-        }
-      </div>
     </div>
   `,
   styles: [`
-    .dashboard-container {
+    .dash-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+    .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
+    .metric {
       display: flex;
       flex-direction: column;
-      gap: 1.5rem;
-    }
-    .system-status-bar {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 1rem;
-      background: white;
-      padding: 0.75rem 1.25rem;
-      border-radius: 8px;
-      border: 1px solid #e2e8f0;
-      font-size: 0.85rem;
-    }
-    .status-item {
-      display: flex;
-      align-items: center;
-      gap: 0.4rem;
-    }
-    .status-dot {
-      width: 8px;
-      height: 8px;
-      border-radius: 50%;
-    }
-    .status-dot.green { background: #22c55e; box-shadow: 0 0 0 2px rgba(34,197,94,0.2); }
-    .status-label { color: #64748b; }
-    .page-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      flex-wrap: wrap;
-      gap: 1rem;
-    }
-    .page-header h2 { margin: 0; color: #1e293b; font-size: 1.5rem; }
-    .subtitle { margin: 0.25rem 0 0; color: #64748b; font-size: 0.95rem; }
-    .header-actions { display: flex; gap: 0.75rem; align-items: center; }
-    .btn {
-      padding: 0.55rem 1.1rem;
-      border-radius: 6px;
-      font-weight: 600;
+      gap: 10px;
+      text-align: left;
+      padding: 18px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      color: var(--text);
       cursor: pointer;
-      border: none;
-      text-decoration: none;
+      font-family: var(--font-sans);
+      box-shadow: var(--shadow-xs);
+      transition: border-color 0.15s, transform 0.15s, box-shadow 0.15s;
+    }
+    .metric:hover { border-color: var(--border-strong); transform: translateY(-2px); box-shadow: 0 6px 16px rgba(15, 23, 42, 0.07); }
+    .metric-on, .metric-on:hover { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary) inset; }
+    .metric-label { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--text-secondary); font-weight: 500; }
+    .metric-value { font-size: 32px; font-weight: 700; letter-spacing: -0.02em; line-height: 1; }
+    .metric-hint { font-size: 11.5px; color: var(--text-muted); }
+    .md { width: 8px; height: 8px; border-radius: 50%; display: inline-block; }
+    .md-all { background: #4f46e5; }
+    .md-bug { background: #ef4444; }
+    .md-improvement { background: #3b82f6; }
+    .md-question { background: #8b5cf6; }
+    .md-review { background: #f59e0b; }
+
+    .queue { overflow: hidden; }
+    .toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 20px; }
+    .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+    .chip {
       display: inline-flex;
       align-items: center;
-      font-size: 0.9rem;
-      transition: background 0.15s ease;
-    }
-    .btn-sm { padding: 0.4rem 0.8rem; font-size: 0.85rem; }
-    .btn-secondary { background-color: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
-    .btn-secondary:hover { background-color: #e2e8f0; }
-    .btn-github { background-color: #24292f; color: white; }
-    .btn-github:hover { background-color: #1b1f23; }
-    .btn-action-triage { background: #10b981; color: white; }
-    .btn-action-triage:hover { background: #059669; }
-    .btn-outline-triage { background: white; color: #0284c7; border: 1px solid #bae6fd; }
-    .btn-outline-triage:hover { background: #f0f9ff; }
-    .webhook-banner {
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      border-radius: 8px;
-      padding: 1.25rem;
-    }
-    .webhook-header { display: flex; justify-content: space-between; align-items: center; }
-    .webhook-header h3 { margin: 0; color: #1e40af; font-size: 1.1rem; }
-    .btn-close { background: transparent; border: none; font-size: 1.2rem; cursor: pointer; color: #64748b; }
-    .webhook-config-box {
-      margin-top: 0.75rem;
-      background: white;
-      padding: 1rem;
-      border-radius: 6px;
-      border: 1px solid #dbeafe;
-      display: flex;
-      flex-direction: column;
-      gap: 0.4rem;
-      font-size: 0.9rem;
-    }
-    .alert-danger {
-      background: #fef2f2;
-      color: #991b1b;
-      border: 1px solid #fecaca;
-      padding: 1rem;
-      border-radius: 6px;
-      font-size: 0.9rem;
-    }
-    .metrics-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
-      gap: 1rem;
-    }
-    .metric-card {
-      background: white;
-      padding: 1.25rem;
-      border-radius: 8px;
-      border: 1px solid #e2e8f0;
-      display: flex;
-      flex-direction: column;
-    }
-    .metric-label { font-size: 0.85rem; color: #64748b; font-weight: 500; }
-    .metric-value { font-size: 1.85rem; font-weight: 700; color: #0f172a; margin-top: 0.5rem; }
-    .github-section {
-      background: white;
-      border-radius: 8px;
-      border: 1px solid #e2e8f0;
-      padding: 1.5rem;
-    }
-    .section-title-row {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 1.25rem;
-      flex-wrap: wrap;
-      gap: 1rem;
-    }
-    .section-title-row h3 { margin: 0; color: #0f172a; }
-    .section-title-row p { margin: 0.2rem 0 0; color: #64748b; font-size: 0.85rem; }
-    .repos-grid {
-      display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
-      gap: 1rem;
-      margin-bottom: 1.5rem;
-    }
-    .repo-card {
-      border: 1px solid #e2e8f0;
-      border-radius: 6px;
-      padding: 1rem;
+      gap: 8px;
+      min-height: 36px;
+      padding: 0 14px;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-secondary);
+      font: 500 13px var(--font-sans);
       cursor: pointer;
-      background: #fafafa;
-      transition: all 0.15s ease;
+      transition: all 0.15s;
     }
-    .repo-card:hover { border-color: #3b82f6; }
-    .repo-card.selected { border-color: #2563eb; background: #f0f7ff; box-shadow: 0 0 0 2px rgba(37,99,235,0.2); }
-    .repo-card-header { display: flex; justify-content: space-between; align-items: center; }
-    .badge-issues { background: #e2e8f0; color: #334155; font-size: 0.75rem; padding: 0.15rem 0.5rem; border-radius: 9999px; }
-    .repo-full-name { font-size: 0.8rem; color: #64748b; margin: 0.35rem 0; }
-    .repo-card-footer { display: flex; justify-content: space-between; font-size: 0.8rem; margin-top: 0.5rem; }
-    .privacy-badge { color: #64748b; }
-    .action-text { color: #2563eb; font-weight: 600; }
-    .issues-panel {
-      margin-top: 1.5rem;
-      border-top: 1px solid #f1f5f9;
-      padding-top: 1.5rem;
-    }
-    .issues-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 1rem;
-    }
-    .issues-header h4 { margin: 0; color: #1e293b; font-size: 1.15rem; }
-    .sub-header { margin: 0.2rem 0 0; font-size: 0.85rem; color: #64748b; }
-    .issues-count { font-size: 0.85rem; color: #64748b; }
-    .issues-list { display: flex; flex-direction: column; gap: 0.85rem; }
-    .issue-item {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      padding: 1rem;
-      border: 1px solid #e2e8f0;
-      border-radius: 6px;
-      background: white;
-      gap: 1rem;
-    }
-    .issue-item.item-triaged { border-left: 4px solid #10b981; }
-    .issue-info { flex: 1; }
-    .issue-title-row { display: flex; gap: 0.6rem; align-items: center; flex-wrap: wrap; }
-    .issue-number { font-weight: 700; color: #475569; font-size: 0.95rem; }
-    .issue-link { color: #0f172a; text-decoration: none; font-weight: 600; }
-    .issue-link:hover { color: #2563eb; text-decoration: underline; }
-    .issue-body-preview { margin: 0.35rem 0; font-size: 0.85rem; color: #64748b; line-height: 1.4; }
-    .job-preview-box {
-      margin: 0.4rem 0;
-      background: #f8fafc;
-      padding: 0.5rem 0.75rem;
-      border-radius: 4px;
-      font-size: 0.85rem;
-      color: #334155;
-      border-left: 3px solid #3b82f6;
-    }
-    .issue-meta { font-size: 0.75rem; color: #94a3b8; }
-    .issue-actions { display: flex; gap: 0.5rem; align-items: center; }
-    .table-container {
-      background: white;
-      border-radius: 8px;
-      border: 1px solid #e2e8f0;
+    .chip:hover { color: var(--text); border-color: var(--border-hover); }
+    .chip-on, .chip-on:hover { background: var(--text); color: #ffffff; border-color: var(--text); }
+    .cnt { font: 500 11px var(--font-mono); opacity: 0.75; }
+    .search { position: relative; flex: 0 1 300px; min-width: 220px; }
+    .search-icon { position: absolute; left: 12px; top: 13px; color: var(--text-muted); }
+    .search .input { padding-left: 38px; }
+
+    .table-scroll {
       overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
     }
-    .table-header { padding: 1.25rem 1.25rem 0.5rem; }
-    .table-header h3 { margin: 0; color: #0f172a; font-size: 1.15rem; }
-    .table-header p { margin: 0.2rem 0 0; color: #64748b; font-size: 0.85rem; }
-    .triage-table { width: 100%; border-collapse: collapse; text-align: left; }
-    .triage-table th { background-color: #f8fafc; padding: 0.75rem 1rem; font-size: 0.85rem; color: #475569; border-bottom: 1px solid #e2e8f0; }
-    .triage-table td { padding: 0.75rem 1rem; border-bottom: 1px solid #f1f5f9; font-size: 0.9rem; }
-    .td-title { font-weight: 500; color: #1e293b; max-width: 320px; }
-    .badge { display: inline-block; padding: 0.2rem 0.6rem; border-radius: 9999px; font-size: 0.75rem; font-weight: 600; }
-    .badge-accepted { background: #e0f2fe; color: #0369a1; }
-    .badge-processing { background: #fef3c7; color: #b45309; }
-    .badge-published { background: #dcfce7; color: #15803d; }
-    .badge-review { background: #fee2e2; color: #b91c1c; }
-    .badge-category { background: #f3e8ff; color: #7e22ce; }
-    .badge-untriaged { background: #f1f5f9; color: #64748b; }
-    .btn-link { color: #2563eb; text-decoration: none; font-weight: 600; font-size: 0.85rem; }
-    .btn-link:hover { text-decoration: underline; }
-    .empty-state { padding: 2rem; text-align: center; color: #64748b; }
+    .table { min-width: 980px; }
+    .row, .row-head { display: grid; grid-template-columns: 1.6fr 2.4fr 1.15fr 1.15fr 1.7fr 1fr; gap: 16px; }
+    .row-head {
+      padding: 12px 20px;
+      font: 600 11.5px var(--font-sans);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      background: var(--bg);
+      border-top: 1px solid var(--border);
+    }
+    .row { align-items: center; padding: 14px 20px; border-top: 1px solid var(--surface-muted); transition: background 0.12s; }
+    .row:hover { background: var(--bg); }
+    .row-fresh { animation: flash 2.2s ease-out; }
+    @keyframes flash { 0% { background: #ede9fe; } 100% { background: transparent; } }
+    .align-right { text-align: right; }
+    .cell-min { min-width: 0; }
+    .cell-owner, .cell-sub { font-size: 11.5px; color: var(--text-muted); }
+    .cell-repo { font-size: 13px; color: var(--text-strong); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .cell-issue { display: flex; flex-direction: column; gap: 3px; }
+    .cell-sub { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .issue-line { display: flex; gap: 8px; align-items: baseline; min-width: 0; }
+    .issue-number { font-size: 13px; color: var(--primary); flex: none; }
+    .issue-title { font-size: 14px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .icon-xs { font-size: 0.75rem !important; }
+    .gh { display: inline-flex; align-items: center; gap: 6px; font: 500 12.5px var(--font-sans); }
+    .gh-published { color: var(--success); }
+    .gh-blocked { color: var(--warning); }
+    .gh-pending { color: var(--text-muted); }
+
+    .empty { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 56px 24px; text-align: center; border-top: 1px solid var(--surface-muted); }
+    .empty p { margin: 0; max-width: 380px; color: var(--text-secondary); font-size: 14px; line-height: 1.5; }
+    .empty-title { font-size: 16px; font-weight: 600; }
+    .empty-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
+
+    /* Media queries para responsividade mobile / tablet / desktop */
+    @media (max-width: 900px) {
+      .metrics { grid-template-columns: repeat(2, 1fr); }
+      .metric:first-child { grid-column: span 2; }
+    }
+
+    @media (max-width: 768px) {
+      .dash-head { flex-direction: column; align-items: stretch; gap: 14px; }
+      .dash-actions { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; width: 100%; }
+      .dash-actions .btn { width: 100%; justify-content: center; }
+      .toolbar { flex-direction: column; align-items: stretch; gap: 12px; padding: 14px 16px; }
+      .chips { overflow-x: auto; flex-wrap: nowrap; -webkit-overflow-scrolling: touch; padding-bottom: 4px; gap: 6px; }
+      .chip { flex-shrink: 0; }
+      .search { width: 100%; min-width: 100%; flex: 1 1 100%; }
+      .row, .row-head { padding: 12px 16px; }
+    }
+
+    @media (max-width: 480px) {
+      .metrics { grid-template-columns: 1fr; }
+      .metric:first-child { grid-column: auto; }
+      .dash-actions { grid-template-columns: 1fr; }
+      .metric { padding: 14px; }
+      .metric-value { font-size: 26px; }
+    }
   `]
 })
-export class DashboardComponent implements OnInit, OnDestroy {
+export class DashboardComponent {
   public readonly api = inject(TriageApiService);
-  private readonly router = inject(Router);
 
-  public showWebhookGuide = signal<boolean>(false);
-  private pollingTimer: any = null;
+  public readonly filter = signal<CategoryFilter>('all');
+  public readonly search = signal('');
 
-  ngOnInit(): void {
-    this.refresh();
-    // Auto-polling a cada 5 segundos para refletir em tempo real novos jobs e conclusões do Worker
-    this.pollingTimer = setInterval(() => {
-      this.api.loadRecentJobs().subscribe();
-    }, 5000);
-  }
+  private readonly views = computed(() => this.api.recentJobs().map(toTriageView));
 
-  ngOnDestroy(): void {
-    if (this.pollingTimer) {
-      clearInterval(this.pollingTimer);
-    }
-  }
+  private readonly counts = computed(() => {
+    const count = (key: CategoryKey) => this.views().filter((view) => view.key === key).length;
+    return { bug: count('bug'), improvement: count('improvement'), question: count('question'), review: count('review') };
+  });
 
-  refresh(): void {
-    this.api.loadRecentJobs().subscribe();
-    this.api.loadGitHubRepositories();
-  }
+  public readonly metrics = computed(() => {
+    const counts = this.counts();
+    const published = this.views().filter((view) => view.github === 'published').length;
+    return [
+      { key: 'all' as const, label: 'Issues triadas', value: this.views().length, hint: `${published} comentários publicados` },
+      { key: 'bug' as const, label: 'Bugs', value: counts.bug, hint: 'Bug Specialist Agent' },
+      { key: 'improvement' as const, label: 'Melhorias', value: counts.improvement, hint: 'Improvement Specialist' },
+      { key: 'question' as const, label: 'Dúvidas', value: counts.question, hint: 'Question Specialist' },
+      { key: 'review' as const, label: 'Revisão Humana', value: counts.review, hint: 'aguardando mantenedor' }
+    ];
+  });
 
-  loadRepos(): void {
-    this.api.loadGitHubRepositories();
-  }
+  public readonly chips = computed(() => {
+    const counts = this.counts();
+    return [
+      { key: 'all' as const, label: 'Todas', count: this.views().length },
+      { key: 'bug' as const, label: 'Bugs', count: counts.bug },
+      { key: 'improvement' as const, label: 'Melhorias', count: counts.improvement },
+      { key: 'question' as const, label: 'Dúvidas', count: counts.question },
+      { key: 'review' as const, label: 'Revisão Humana', count: counts.review }
+    ];
+  });
 
-  selectRepository(repo: GitHubRepo): void {
-    this.api.selectRepository(repo.fullName);
-  }
-
-  triageIssue(issueNumber: number): void {
-    const selected = this.api.selectedRepo();
-    if (!selected) return;
-    const [owner, name] = selected.split('/');
-
-    this.api.triggerIssueTriage(owner, name, issueNumber).subscribe({
-      next: () => {
-        this.router.navigate(['/issues', owner, name, issueNumber]);
-      }
+  public readonly rows = computed(() => {
+    const filter = this.filter();
+    const query = this.search().trim().toLowerCase();
+    return this.views().filter((view) => {
+      const matchesCategory = filter === 'all' || view.key === filter;
+      const haystack = `${view.job.repository} #${view.job.issueNumber} ${view.job.title}`.toLowerCase();
+      return matchesCategory && (!query || haystack.includes(query));
     });
+  });
+
+  public clearFilters(): void {
+    this.filter.set('all');
+    this.search.set('');
   }
 
-  getJob(repository: string, issueNumber: number): TriageResult | undefined {
-    return this.api.getJobForIssue(repository, issueNumber);
-  }
-
-  toggleWebhookInfo(): void {
-    this.showWebhookGuide.set(!this.showWebhookGuide());
-  }
-
-  getPreview(body?: string): string {
-    if (!body) return 'Sem descrição no corpo da issue.';
-    return body.length > 120 ? body.substring(0, 120) + '...' : body;
-  }
-
-  countByStatus(status: string): number {
-    return this.api.recentJobs().filter(j => j.status === status).length;
-  }
-
-  getStatusLabel(status: string): string {
-    switch (status) {
-      case 'Accepted': return '⏳ Na Fila';
-      case 'Processing': return '⚙️ Analisando';
-      case 'Published': return '✅ Publicado';
-      case 'HumanReviewRequired': return '⚠️ Revisão Humana';
-      default: return status;
-    }
-  }
-
-  getStatusBadgeClass(status: string): string {
-    switch (status) {
-      case 'Accepted': return 'badge-accepted';
-      case 'Processing': return 'badge-processing';
-      case 'Published': return 'badge-published';
-      case 'HumanReviewRequired': return 'badge-review';
-      default: return '';
-    }
-  }
-
-  getOwner(repo: string): string {
-    return repo.split('/')[0] || '';
-  }
-
-  getRepo(repo: string): string {
-    return repo.split('/')[1] || '';
+  public refresh(): void {
+    this.api.loadRecentJobs().subscribe();
   }
 }

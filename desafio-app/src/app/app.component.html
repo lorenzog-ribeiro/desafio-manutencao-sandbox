@@ -1,21 +1,29 @@
 <div class="app-layout">
-  <nav class="navbar">
-    <div class="nav-brand">
-      <span class="logo-icon">⚡</span>
-      <span class="brand-name">Software Triage Hub</span>
-      <span class="badge-runtime">.NET 10 • Clean Architecture</span>
+  <header class="app-header">
+    <div class="header-inner">
+      <div class="brand">
+        <div class="brand-logo">
+          <span class="material-symbols-outlined icon-md" aria-hidden="true">monitor_heart</span>
+        </div>
+        <div class="brand-text">
+          <span class="brand-name">AutoTriage</span>
+        </div>
+      </div>
+
+      <nav class="main-nav" aria-label="Navegação principal">
+        <a class="nav" routerLink="/dashboard" routerLinkActive="nav-on">
+          <span class="material-symbols-outlined icon-sm" aria-hidden="true">dashboard</span>
+          <span>Painel de Triagem</span>
+        </a>
+        <a class="nav" routerLink="/catalog" routerLinkActive="nav-on">
+          <span class="material-symbols-outlined icon-sm" aria-hidden="true">menu_book</span>
+          <span>Catálogo de Repositórios</span>
+        </a>
+      </nav>
     </div>
-    <div class="nav-links">
-      <a routerLink="/dashboard" routerLinkActive="active">Painel & Repositórios</a>
-      <span class="connection-status">🟢 API :5012</span>
-    </div>
-  </nav>
+  </header>
 
   <main class="main-content">
     <router-outlet></router-outlet>
   </main>
-
-  <footer class="footer">
-    <p>Software Triage Hub • Triagem Autônoma de Issues com Clean Architecture & DDD</p>
-  </footer>
 </div>

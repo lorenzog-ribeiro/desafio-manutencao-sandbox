@@ -27,6 +27,17 @@ public sealed class ReceiveEventUseCase(
             return MapToDto(existingJob);
         }
 
+        // 1.1 Idempotency check by (Repository, IssueNumber) to avoid duplicate webhooks for the same issue
+        var existingIssueJob = await repository.GetByRepoAndNumberAsync(dto.Repository, dto.IssueNumber, cancellationToken);
+        if (existingIssueJob is not null && (existingIssueJob.Status == TriageStatus.Accepted ||
+                                             existingIssueJob.Status == TriageStatus.Processing ||
+                                             (existingIssueJob.PublishedAt.HasValue && DateTime.UtcNow - existingIssueJob.PublishedAt.Value < TimeSpan.FromMinutes(5))))
+        {
+            logger.LogInformation("Issue '{Repository}#{IssueNumber}' already has a recent job '{JobId}' (Status: {Status}). Skipping duplicate creation.",
+                dto.Repository, dto.IssueNumber, existingIssueJob.Id, existingIssueJob.Status);
+            return MapToDto(existingIssueJob);
+        }
+
         // 2. Validate repository catalog inclusion
         var isAccepted = await catalog.IsAcceptedAsync(dto.Repository, cancellationToken);
         if (!isAccepted)

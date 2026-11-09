@@ -1,333 +1,434 @@
-import { Component, OnInit, OnDestroy, inject, signal } from '@angular/core';
-import { CommonModule } from '@angular/common';
+import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { DatePipe } from '@angular/common';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { TriageApiService } from '../../services/triage-api.service';
-import { TriageResult } from '../../models/triage.model';
+import { GitHubIssue, TriageResult } from '../../models/triage.model';
+import {
+  buildCommentPreview,
+  buildPipeline,
+  hasProposal,
+  isCatalogRejection,
+  missingInformation,
+  proposalSteps,
+  proposalSummary,
+  specialistFor,
+  toTriageView
+} from '../../models/triage-view';
+import { TriagePipelineComponent } from '../../shared/triage-pipeline.component';
 
 @Component({
   selector: 'app-issue-viewer',
   standalone: true,
-  imports: [CommonModule, RouterLink],
+  imports: [DatePipe, RouterLink, TriagePipelineComponent],
   template: `
-    <div class="viewer-container">
-      <nav class="nav-breadcrumbs">
-        <a routerLink="/dashboard">← Voltar ao Painel Geral</a>
-      </nav>
+    <div class="detail">
+      <div class="back-row">
+        <a class="btn btn-sm btn-ghost back" routerLink="/dashboard">
+          <span class="material-symbols-outlined icon-sm" aria-hidden="true">arrow_back</span>
+          Voltar ao painel
+        </a>
+        @if (result()) {
+          <button type="button" class="btn btn-sm" [disabled]="!canRetrigger()" (click)="retrigger()">
+            <span class="material-symbols-outlined icon-sm" aria-hidden="true">refresh</span>
+            {{ api.isTriagingIssue() === issueNumber() ? 'Enviando…' : 'Re-executar triagem' }}
+          </button>
+        }
+      </div>
 
       @if (isLoading()) {
-        <div class="loading-box">
-          <p class="pulse-text">Carregando diagnóstico do PostgreSQL...</p>
-        </div>
-      } @else if (result(); as item) {
-        <div class="card triage-card">
-          <header class="triage-header">
-            <div>
-              <div class="header-badges">
-                <span class="repo-badge">{{ item.repository }}</span>
-                <span class="badge" [ngClass]="getStatusBadgeClass(item.status)">
-                  {{ getStatusLabel(item.status) }}
-                </span>
-                @if (item.category) {
-                  <span class="badge badge-category">{{ item.category }}</span>
-                }
-              </div>
-              <h1>Issue #{{ item.issueNumber }}: {{ item.title }}</h1>
-            </div>
-            <div class="header-actions">
-              <a [href]="getGitHubIssueUrl()" target="_blank" class="btn btn-github">
-                Ver no GitHub ↗
-              </a>
-              <button class="btn btn-secondary" (click)="loadIssue()">
-                🔄 Atualizar
-              </button>
-            </div>
-          </header>
-
-          <!-- Banner de Status em Tempo Real -->
-          @if (item.status === 'Accepted' || item.status === 'Processing') {
-            <div class="realtime-banner processing">
-              <span class="spinner">⏳</span>
-              <div>
-                <strong>Processamento em Andamento</strong>
-                <p>O Worker está analisando esta issue com os prompts especialistas. Esta página será atualizada automaticamente assim que o comentário for publicado no GitHub.</p>
-              </div>
-            </div>
-          } @else if (item.status === 'Published') {
-            <div class="realtime-banner success">
-              <span>✅</span>
-              <div>
-                <strong>Triagem Concluída com Sucesso</strong>
-                <p>A proposta técnica gerada pela IA foi validada e comentada diretamente na issue no GitHub.</p>
-              </div>
-            </div>
-          } @else if (item.status === 'HumanReviewRequired') {
-            <div class="realtime-banner warning">
-              <span>⚠️</span>
-              <div>
-                <strong>Atenção: Revisão Humana Solicitada</strong>
-                <p>A issue não apresentou passos de reprodução conclusivos ou logs de erro. O bot postou uma notificação no GitHub solicitando evidências adicionais.</p>
-              </div>
+        <div class="card state-card"><p>Carregando diagnóstico…</p></div>
+      } @else if (view(); as d) {
+        <section class="card panel">
+          <div class="tags">
+            <span class="mono tag-repo">{{ d.job.repository }}</span>
+            <span class="mono tag-number">{{ d.numberLabel }}</span>
+            <span [class]="'badge ' + d.catClass">
+              @if (d.classified) {
+                <span class="dot"></span>
+              }
+              {{ d.catLabel }}
+            </span>
+            <span [class]="'st ' + d.statusClass">{{ d.statusLabel }}</span>
+          </div>
+          <h1 class="issue-heading">{{ d.job.title }}</h1>
+          @if (issue(); as source) {
+            <div class="issue-meta">
+              <span class="author">
+                <span class="material-symbols-outlined icon-sm" aria-hidden="true">person</span>
+                &#64;{{ source.author || 'autor' }} abriu esta issue
+              </span>
+              <span class="mono meta-date">aberta em {{ source.createdAt | date: 'dd/MM/yyyy HH:mm:ss' }}</span>
             </div>
           }
+          <div>
+            <div class="section-label label-gap">Corpo original enviado</div>
+            <pre class="code issue-body">{{ bodyText() }}</pre>
+          </div>
+        </section>
 
-          <!-- Metadados -->
-          <div class="meta-row">
-            <div>
-              <strong>Event ID:</strong> <code>{{ item.eventId }}</code>
-            </div>
-            @if (item.publishedAt) {
-              <div>
-                <strong>Publicado em:</strong> {{ item.publishedAt | date:'dd/MM/yyyy HH:mm:ss' }}
-              </div>
-            }
+        <div class="columns">
+          <div class="column column-left">
+            <section class="card panel routing">
+              <h2 class="card-title">
+                <span class="material-symbols-outlined icon-md ai" aria-hidden="true">smart_toy</span>
+                Roteamento da IA <span class="mono harness">harness</span>
+              </h2>
+
+              <app-triage-pipeline [steps]="pipeline()" />
+
+              @if (proposed()) {
+                <div class="specialist">
+                  <div class="specialist-text">
+                    <span class="specialist-label">Especialista acionado</span>
+                    <span class="specialist-name">{{ specialist() }}</span>
+                  </div>
+                  <span class="mono specialist-cat">categoria {{ d.job.category }}</span>
+                </div>
+              }
+
+              @if (catalogRejected()) {
+                <div class="dashed-warning">Repositório sem cadastro no catálogo: nenhuma diretriz disponível, triagem automática interrompida.</div>
+              }
+            </section>
+
+            <section class="card panel">
+              <h2 class="card-title">
+                <span class="material-symbols-outlined icon-md primary" aria-hidden="true">build</span>
+                Proposta gerada
+              </h2>
+
+              @if (!d.done) {
+                <div class="waiting">
+                  <span class="material-symbols-outlined icon-sm spin" aria-hidden="true">progress_activity</span>
+                  O especialista ainda está analisando esta issue…
+                </div>
+              } @else if (proposed()) {
+                <div class="proposal">
+                  <div>
+                    <div class="section-label label-gap">Resumo estruturado</div>
+                    <p class="summary">{{ summary() }}</p>
+                  </div>
+                  @if (steps().length > 0) {
+                    <div>
+                      <div class="section-label label-gap">Próximo passo recomendado</div>
+                      <ol class="steps">
+                        @for (step of steps(); track $index) {
+                          <li>{{ step }}</li>
+                        }
+                      </ol>
+                    </div>
+                  }
+                  @if (missingInfo(); as info) {
+                    <div class="amber-note">
+                      <span class="material-symbols-outlined icon-sm" aria-hidden="true">info</span>
+                      <span><strong>Informações solicitadas ao autor:</strong> {{ info }}</span>
+                    </div>
+                  }
+                </div>
+              } @else {
+                <div class="amber-note">
+                  <span class="material-symbols-outlined icon-sm" aria-hidden="true">info</span>
+                  <span>{{ d.job.failureReason || 'Encaminhado para revisão humana sem proposta gerada.' }}</span>
+                </div>
+              }
+            </section>
           </div>
 
-          <!-- Motivo de Revisão Humana / Falha -->
-          @if (item.failureReason) {
-            <div class="alert alert-warning">
-              <strong>Motivo do Encaminhamento:</strong>
-              <p>{{ item.failureReason }}</p>
-            </div>
-          }
+          <div class="column column-right">
+            <section class="card comment-card">
+              <div class="comment-head">
+                <h2 class="card-title">
+                  <span class="material-symbols-outlined icon-md primary" aria-hidden="true">chat_bubble</span>
+                  GitHub Comment
+                </h2>
+                @if (comment()) {
+                  <div class="seg" role="group" aria-label="Modo de visualização">
+                    <button type="button" class="seg-b" [class.seg-on]="commentView() === 'preview'" (click)="commentView.set('preview')">Preview</button>
+                    <button type="button" class="seg-b" [class.seg-on]="commentView() === 'raw'" (click)="commentView.set('raw')">Markdown</button>
+                  </div>
+                }
+              </div>
 
-          <!-- Diagnóstico da IA -->
-          @if (item.problemSummary) {
-            <section class="section-box">
-              <h3>📋 Resumo do Problema Identificado pela IA</h3>
-              <p class="summary-text">{{ item.problemSummary }}</p>
+              @if (!d.done) {
+                <div class="comment-empty">Nenhum comentário ainda. A publicação acontece ao fim da triagem.</div>
+              } @else if (comment(); as c) {
+                <div class="comment-body">
+                  <div class="gh-box">
+                    <div class="gh-box-head">
+                      <span class="gh-avatar">
+                        <span class="material-symbols-outlined icon-xs" aria-hidden="true">monitor_heart</span>
+                      </span>
+                      <span class="gh-author">autotriage-bot</span>
+                      <span class="gh-tag">bot</span>
+                      <span class="gh-verb">
+                        @if (d.job.publishedAt) {
+                          comentou em {{ d.job.publishedAt | date: 'dd/MM/yyyy HH:mm:ss' }}
+                        } @else {
+                          não publicado
+                        }
+                      </span>
+                    </div>
+
+                    @if (commentView() === 'preview') {
+                      <div class="gh-preview">
+                        <div class="gh-heading">{{ c.heading }}</div>
+                        @if (c.category) {
+                          <p><strong>Categoria Identificada:</strong> <code>{{ c.category }}</code></p>
+                        }
+                        @for (section of c.sections; track section.title) {
+                          <div class="gh-section">
+                            <strong>{{ section.title }}</strong>
+                            <p class="gh-text">{{ section.text }}</p>
+                          </div>
+                        }
+                        <div class="gh-footer">{{ c.footer }}</div>
+                      </div>
+                    } @else {
+                      <pre class="code gh-raw">{{ c.markdown }}</pre>
+                    }
+                  </div>
+
+                  @if (d.job.publishedAt) {
+                    <a class="ext" [href]="githubUrl()" target="_blank" rel="noopener noreferrer">
+                      Ver na issue real
+                      <span class="material-symbols-outlined icon-sm" aria-hidden="true">open_in_new</span>
+                    </a>
+                  }
+                </div>
+              } @else {
+                <div class="comment-body">
+                  <div class="notice notice-orange">Nenhum comentário foi publicado: a ação externa foi bloqueada e a issue aguarda revisão humana.</div>
+                </div>
+              }
             </section>
-          }
 
-          <!-- Próximos Passos -->
-          @if (item.suggestedAction) {
-            <section class="section-box suggested-action">
-              <h3>🎯 Próximos Passos Sugeridos</h3>
-              <p class="action-text">{{ item.suggestedAction }}</p>
+            <section class="card panel idem">
+              <h2 class="card-title">
+                <span class="material-symbols-outlined icon-md ai" aria-hidden="true">tag</span>
+                Registro de idempotência
+              </h2>
+              <dl>
+                @for (entry of idempotency(); track entry.key) {
+                  <div class="idem-row">
+                    <dt>{{ entry.key }}</dt>
+                    <dd class="mono">{{ entry.value }}</dd>
+                  </div>
+                }
+              </dl>
+              <div class="idem-note">
+                <span class="material-symbols-outlined icon-sm" aria-hidden="true">verified_user</span>
+                Reentregas do mesmo evento são reconhecidas pela chave e descartadas antes de qualquer ação externa.
+              </div>
             </section>
-          }
-
-          <!-- Ação de Re-triagem -->
-          <div class="footer-actions">
-            <button 
-              class="btn btn-retriage" 
-              (click)="reTriggerTriage()" 
-              [disabled]="api.isTriagingIssue() === issueNumber">
-              {{ api.isTriagingIssue() === issueNumber ? 'Enviando para Fila...' : '⚡ Re-executar Triagem com IA' }}
-            </button>
-            <a [href]="getGitHubIssueUrl()" target="_blank" class="github-link-secondary">
-              Abrir Issue no GitHub ↗
-            </a>
           </div>
         </div>
       } @else {
-        <div class="not-found-box">
-          <h2>Nenhum Registro de Triagem</h2>
-          <p>A issue <code>{{ owner }}/{{ repo }}#{{ issueNumber }}</code> ainda não foi triada.</p>
-          <div class="action-row">
-            <button class="btn btn-action-triage" (click)="reTriggerTriage()">
-              ⚡ Iniciar Triagem Agora
-            </button>
-            <a routerLink="/dashboard" class="btn btn-secondary">Voltar ao Painel</a>
-          </div>
+        <div class="card state-card">
+          <span class="material-symbols-outlined icon-lg ai" aria-hidden="true">search</span>
+          <div class="state-title">Nenhum registro de triagem</div>
+          <p>A issue <code>{{ owner() }}/{{ repo() }}#{{ issueNumber() }}</code> ainda não foi triada.</p>
+          <button type="button" class="btn btn-ai" [disabled]="api.isTriagingIssue() === issueNumber()" (click)="retrigger()">Iniciar triagem agora</button>
         </div>
       }
     </div>
   `,
   styles: [`
-    .viewer-container {
-      max-width: 900px;
-      margin: 0 auto;
-      display: flex;
-      flex-direction: column;
-      gap: 1.5rem;
+    .detail { display: flex; flex-direction: column; gap: 20px; }
+    .back-row { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; }
+    .back { padding-left: 6px; }
+    .panel { padding: 22px; display: flex; flex-direction: column; gap: 16px; }
+    .routing { gap: 18px; }
+    .tags { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+    .tag-repo { font-size: 13px; color: var(--text-muted); }
+    .tag-number { font-size: 13px; color: var(--primary); }
+    .issue-heading { margin: 0; font-size: 24px; font-weight: 700; letter-spacing: -0.015em; }
+    .issue-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 13px; color: var(--text-secondary); }
+    .author { display: inline-flex; align-items: center; gap: 6px; }
+    .meta-date { color: var(--text-muted); }
+    .label-gap { margin-bottom: 8px; }
+    .issue-body { font-family: var(--font-sans); font-size: 14px; line-height: 1.6; color: var(--text-strong); }
+    .columns { display: flex; flex-wrap: wrap; gap: 20px; align-items: flex-start; }
+    .column { min-width: 0; display: flex; flex-direction: column; gap: 20px; }
+    .column-left { flex: 1 1 520px; }
+    .column-right { flex: 1 1 460px; }
+    .ai { color: var(--ai); }
+    .primary { color: var(--primary); }
+    .harness { font-size: 12px; color: var(--text-muted); font-weight: 400; }
+    .specialist { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 16px; border-radius: 10px; background: var(--ai-soft); border: 1px solid var(--ai-border); }
+    .specialist-text { display: flex; flex-direction: column; gap: 3px; }
+    .specialist-label { font-size: 12px; color: var(--ai-hover); text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+    .specialist-name { font-size: 16px; font-weight: 600; }
+    .specialist-cat { font-size: 12.5px; color: var(--ai-hover); }
+    .dashed-warning { font-size: 13.5px; color: var(--warning); padding: 12px 14px; border-radius: 10px; border: 1px dashed #fcd34d; background: var(--warning-soft); }
+    .waiting { display: flex; align-items: center; gap: 10px; color: var(--ai-hover); font-size: 14px; padding: 18px; border-radius: 10px; border: 1px dashed #c4b5fd; background: var(--ai-soft); }
+    .proposal { display: flex; flex-direction: column; gap: 16px; }
+    .summary { margin: 0; font-size: 14.5px; line-height: 1.6; color: var(--text-strong); }
+    .steps { margin: 0; padding-left: 20px; display: flex; flex-direction: column; gap: 6px; font-size: 14px; line-height: 1.5; color: var(--text-strong); }
+    .amber-note { display: flex; gap: 10px; padding: 12px 14px; border-radius: 10px; background: var(--warning-soft); border: 1px solid var(--warning-border); font-size: 13px; line-height: 1.5; color: #78350f; }
+    .amber-note .material-symbols-outlined { flex: none; margin-top: 2px; color: var(--warning); }
+
+    .comment-card { overflow: hidden; }
+    .comment-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding: 16px 20px; border-bottom: 1px solid var(--border); }
+    .seg { display: inline-flex; padding: 3px; border-radius: 9px; background: var(--surface-muted); border: 1px solid var(--border); }
+    .seg-b { min-height: 30px; padding: 0 12px; border-radius: 6px; border: 0; background: transparent; color: var(--text-secondary); font: 500 12.5px var(--font-sans); cursor: pointer; }
+    .seg-b:hover { color: var(--text); }
+    .seg-on { background: var(--surface); color: var(--text); box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1); }
+    .comment-empty { padding: 32px 20px; text-align: center; color: var(--text-secondary); font-size: 14px; }
+    .comment-body { padding: 18px 20px; display: flex; flex-direction: column; gap: 14px; }
+    .gh-box { border: 1px solid #d0d7de; border-radius: 10px; overflow: hidden; background: var(--surface); }
+    .gh-box-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 14px; background: #f6f8fa; border-bottom: 1px solid #d0d7de; font-size: 13px; }
+    .gh-avatar { width: 22px; height: 22px; border-radius: 50%; background: linear-gradient(135deg, var(--primary), var(--ai)); display: inline-flex; align-items: center; justify-content: center; color: #ffffff; }
+    .icon-xs { font-size: 0.75rem !important; }
+    .gh-author { font-weight: 600; color: #1f2328; }
+    .gh-tag { font-size: 11px; padding: 1px 6px; border: 1px solid #d0d7de; border-radius: 999px; color: #59636e; }
+    .gh-verb { color: #59636e; }
+    .gh-preview { padding: 16px 18px; color: #1f2328; font-size: 14px; line-height: 1.6; display: flex; flex-direction: column; gap: 12px; }
+    .gh-preview p { margin: 0; }
+    .gh-preview code { font: 12.5px var(--font-mono); background: #eff1f3; padding: 2px 5px; border-radius: 4px; }
+    .gh-heading { font-size: 18px; font-weight: 600; padding-bottom: 8px; border-bottom: 1px solid #d8dee4; }
+    .gh-section { display: flex; flex-direction: column; gap: 6px; }
+    .gh-text { white-space: pre-line; }
+    .gh-footer { border-top: 1px solid #d8dee4; padding-top: 8px; font-size: 12.5px; font-style: italic; color: #59636e; }
+    .gh-raw { border: 0; border-radius: 0; background: #f6f8fa; color: #1f2328; }
+    .ext { display: inline-flex; align-items: center; gap: 6px; font: 500 13px var(--font-sans); }
+
+    .idem { padding: 20px; gap: 14px; }
+    dl { margin: 0; display: flex; flex-direction: column; }
+    .idem-row { display: grid; grid-template-columns: minmax(0, 150px) minmax(0, 1fr); gap: 12px; padding: 9px 0; border-top: 1px solid var(--surface-muted); }
+    dt { font-size: 12.5px; color: var(--text-secondary); }
+    dd { margin: 0; font-size: 12.5px; color: var(--text); word-break: break-all; }
+    .idem-note { display: flex; gap: 10px; align-items: flex-start; font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; }
+    .idem-note .material-symbols-outlined { flex: none; margin-top: 2px; color: var(--success); }
+
+    .state-card { display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 64px 24px; text-align: center; }
+    .state-card p { margin: 0; color: var(--text-secondary); font-size: 14px; }
+    .state-title { font-size: 16px; font-weight: 600; }
+
+    /* Media queries para responsividade */
+    @media (max-width: 1024px) {
+      .columns { flex-direction: column; gap: 16px; }
+      .column-left, .column-right { width: 100%; flex: 1 1 100%; min-width: 0; }
     }
-    .nav-breadcrumbs a {
-      color: #2563eb;
-      text-decoration: none;
-      font-weight: 500;
-      font-size: 0.9rem;
+
+    @media (max-width: 768px) {
+      .panel { padding: 18px 16px; }
+      .comment-body { padding: 14px 16px; }
+      .comment-head { padding: 14px 16px; }
+      .issue-heading { font-size: 20px; word-break: break-word; }
+      .idem-row { grid-template-columns: 1fr; gap: 4px; padding: 10px 0; }
+      .idem-row dt { font-weight: 600; }
     }
-    .nav-breadcrumbs a:hover { text-decoration: underline; }
-    .card {
-      background: white;
-      border: 1px solid #e2e8f0;
-      border-radius: 8px;
-      padding: 2rem;
+
+    @media (max-width: 480px) {
+      .back-row { flex-direction: column; align-items: stretch; gap: 10px; }
+      .back-row .btn { width: 100%; justify-content: center; }
+      .specialist { flex-direction: column; align-items: flex-start; gap: 8px; }
+      .comment-head { flex-direction: column; align-items: flex-start; gap: 10px; }
+      .comment-head .seg { width: 100%; }
+      .comment-head .seg-b { flex: 1; text-align: center; }
+      .gh-box-head { font-size: 12px; gap: 6px; }
     }
-    .triage-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: flex-start;
-      border-bottom: 1px solid #e2e8f0;
-      padding-bottom: 1.5rem;
-      flex-wrap: wrap;
-      gap: 1rem;
-    }
-    .header-badges {
-      display: flex;
-      align-items: center;
-      gap: 0.5rem;
-      margin-bottom: 0.5rem;
-      flex-wrap: wrap;
-    }
-    .repo-badge {
-      font-size: 0.85rem;
-      background: #f1f5f9;
-      color: #475569;
-      padding: 0.2rem 0.6rem;
-      border-radius: 4px;
-      font-family: monospace;
-    }
-    .triage-header h1 {
-      margin: 0;
-      font-size: 1.45rem;
-      color: #0f172a;
-    }
-    .header-actions {
-      display: flex;
-      gap: 0.5rem;
-      align-items: center;
-    }
-    .realtime-banner {
-      margin-top: 1.5rem;
-      display: flex;
-      gap: 1rem;
-      padding: 1rem 1.25rem;
-      border-radius: 6px;
-      font-size: 0.9rem;
-      align-items: flex-start;
-    }
-    .realtime-banner p { margin: 0.25rem 0 0; color: #475569; }
-    .realtime-banner.processing {
-      background: #eff6ff;
-      border: 1px solid #bfdbfe;
-      color: #1e40af;
-    }
-    .realtime-banner.success {
-      background: #f0fdf4;
-      border: 1px solid #bbf7d0;
-      color: #166534;
-    }
-    .realtime-banner.warning {
-      background: #fffbeb;
-      border: 1px solid #fef3c7;
-      color: #92400e;
-    }
-    .badge {
-      display: inline-block;
-      padding: 0.25rem 0.65rem;
-      border-radius: 9999px;
-      font-size: 0.8rem;
-      font-weight: 700;
-    }
-    .badge-accepted { background: #e0f2fe; color: #0369a1; }
-    .badge-processing { background: #fef3c7; color: #b45309; }
-    .badge-published { background: #dcfce7; color: #15803d; }
-    .badge-review { background: #fee2e2; color: #b91c1c; }
-    .badge-category { background: #f3e8ff; color: #7e22ce; }
-    .meta-row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 1.5rem;
-      padding: 1rem 0;
-      font-size: 0.9rem;
-      color: #475569;
-      border-bottom: 1px solid #f1f5f9;
-    }
-    .section-box {
-      margin-top: 1.5rem;
-      background: #f8fafc;
-      padding: 1.25rem;
-      border-radius: 6px;
-      border-left: 4px solid #3b82f6;
-    }
-    .section-box.suggested-action {
-      border-left-color: #10b981;
-    }
-    .section-box h3 {
-      margin: 0 0 0.5rem;
-      font-size: 1rem;
-      color: #1e293b;
-    }
-    .summary-text, .action-text {
-      margin: 0;
-      color: #334155;
-      line-height: 1.55;
-    }
-    .alert-warning {
-      margin-top: 1.5rem;
-      background: #fffbeb;
-      border: 1px solid #fef3c7;
-      border-left: 4px solid #f59e0b;
-      padding: 1rem;
-      border-radius: 6px;
-      color: #92400e;
-    }
-    .alert-warning p { margin: 0.25rem 0 0; }
-    .footer-actions {
-      margin-top: 2rem;
-      padding-top: 1.25rem;
-      border-top: 1px solid #e2e8f0;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-    }
-    .btn {
-      padding: 0.5rem 1rem;
-      border-radius: 6px;
-      font-weight: 600;
-      cursor: pointer;
-      border: none;
-      text-decoration: none;
-      display: inline-flex;
-      align-items: center;
-      font-size: 0.9rem;
-    }
-    .btn-secondary { background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
-    .btn-secondary:hover { background: #e2e8f0; }
-    .btn-github { background: #24292f; color: white; }
-    .btn-github:hover { background: #1b1f23; }
-    .btn-action-triage, .btn-retriage { background: #10b981; color: white; }
-    .btn-action-triage:hover, .btn-retriage:hover { background: #059669; }
-    .github-link-secondary { color: #64748b; font-size: 0.9rem; text-decoration: none; }
-    .github-link-secondary:hover { color: #0f172a; text-decoration: underline; }
-    .loading-box, .not-found-box {
-      text-align: center;
-      padding: 3rem;
-      background: white;
-      border-radius: 8px;
-      border: 1px solid #e2e8f0;
-    }
-    .action-row { display: flex; justify-content: center; gap: 1rem; margin-top: 1.5rem; }
   `]
 })
 export class IssueViewerComponent implements OnInit, OnDestroy {
   private readonly route = inject(ActivatedRoute);
+  private readonly datePipe = new DatePipe('en-US');
   public readonly api = inject(TriageApiService);
 
-  public owner = '';
-  public repo = '';
-  public issueNumber = 0;
+  public readonly owner = signal('');
+  public readonly repo = signal('');
+  public readonly issueNumber = signal(0);
 
-  public result = signal<TriageResult | null>(null);
-  public isLoading = signal<boolean>(true);
-  private pollTimer: any = null;
+  public readonly result = signal<TriageResult | null>(null);
+  public readonly issue = signal<GitHubIssue | null>(null);
+  public readonly isLoading = signal(true);
+  public readonly commentView = signal<'preview' | 'raw'>('preview');
+
+  public readonly view = computed(() => {
+    const job = this.result();
+    return job ? toTriageView(job) : null;
+  });
+  public readonly pipeline = computed(() => {
+    const view = this.view();
+    return view ? buildPipeline(view) : [];
+  });
+  public readonly proposed = computed(() => {
+    const job = this.result();
+    return !!job && hasProposal(job);
+  });
+  public readonly catalogRejected = computed(() => {
+    const job = this.result();
+    return !!job && isCatalogRejection(job);
+  });
+  public readonly specialist = computed(() => {
+    const job = this.result();
+    return job ? specialistFor(job) : '';
+  });
+  public readonly summary = computed(() => {
+    const job = this.result();
+    return job ? proposalSummary(job) : '';
+  });
+  public readonly steps = computed(() => {
+    const job = this.result();
+    return job ? proposalSteps(job) : [];
+  });
+  public readonly missingInfo = computed(() => {
+    const job = this.result();
+    return job ? missingInformation(job) : null;
+  });
+  public readonly comment = computed(() => {
+    const job = this.result();
+    return job && this.view()?.done && hasProposal(job) ? buildCommentPreview(job) : null;
+  });
+  public readonly bodyText = computed(() => {
+    const source = this.issue();
+    if (!source) {
+      return 'Corpo indisponível: a API só expõe o texto de issues abertas no GitHub.';
+    }
+    return source.body?.trim() ? source.body : '(descrição vazia)';
+  });
+  public readonly githubUrl = computed(
+    () => this.issue()?.htmlUrl ?? `https://github.com/${this.owner()}/${this.repo()}/issues/${this.issueNumber()}`
+  );
+  public readonly canRetrigger = computed(() => {
+    const view = this.view();
+    return (!view || view.done) && this.api.isTriagingIssue() !== this.issueNumber();
+  });
+  public readonly idempotency = computed(() => {
+    const view = this.view();
+    if (!view) {
+      return [];
+    }
+    const { job, done } = view;
+    const confirmed = job.publishedAt
+      ? this.datePipe.transform(job.publishedAt, 'dd/MM/yyyy HH:mm:ss') ?? job.publishedAt
+      : done
+        ? 'bloqueada · revisão humana'
+        : 'pendente';
+    return [
+      { key: 'Event ID', value: job.eventId },
+      { key: 'Chave de idempotência', value: `${job.repository}#${job.issueNumber}` },
+      { key: 'Status do job', value: job.status },
+      { key: 'Publicação confirmada', value: confirmed }
+    ];
+  });
+
+  private pollTimer: ReturnType<typeof setInterval> | null = null;
 
   ngOnInit(): void {
-    this.route.paramMap.subscribe(params => {
-      this.owner = params.get('owner') || '';
-      this.repo = params.get('repo') || '';
-      this.issueNumber = Number(params.get('number') || 0);
-      if (this.owner && this.repo && this.issueNumber) {
+    this.route.paramMap.subscribe((params) => {
+      this.owner.set(params.get('owner') || '');
+      this.repo.set(params.get('repo') || '');
+      this.issueNumber.set(Number(params.get('number') || 0));
+      if (this.owner() && this.repo() && this.issueNumber()) {
         this.loadIssue();
       }
     });
 
-    // Se estiver aguardando processamento, faz polling a cada 2 segundos
     this.pollTimer = setInterval(() => {
       const current = this.result();
       if (current && (current.status === 'Accepted' || current.status === 'Processing')) {
-        this.silentReload();
+        this.reloadResult();
       }
     }, 2000);
   }
@@ -338,9 +439,17 @@ export class IssueViewerComponent implements OnInit, OnDestroy {
     }
   }
 
-  loadIssue(): void {
+  public retrigger(): void {
+    this.api.triggerIssueTriage(this.owner(), this.repo(), this.issueNumber()).subscribe({
+      next: (data) => this.result.set(data),
+      error: () => {}
+    });
+  }
+
+  private loadIssue(): void {
     this.isLoading.set(true);
-    this.api.getTriageResult(this.owner, this.repo, this.issueNumber).subscribe({
+    this.api.findOpenIssue(this.owner(), this.repo(), this.issueNumber()).subscribe((issue) => this.issue.set(issue));
+    this.api.getTriageResult(this.owner(), this.repo(), this.issueNumber()).subscribe({
       next: (data) => {
         this.result.set(data);
         this.isLoading.set(false);
@@ -352,43 +461,10 @@ export class IssueViewerComponent implements OnInit, OnDestroy {
     });
   }
 
-  silentReload(): void {
-    this.api.getTriageResult(this.owner, this.repo, this.issueNumber).subscribe({
+  private reloadResult(): void {
+    this.api.getTriageResult(this.owner(), this.repo(), this.issueNumber()).subscribe({
       next: (data) => this.result.set(data),
       error: () => {}
     });
-  }
-
-  reTriggerTriage(): void {
-    this.api.triggerIssueTriage(this.owner, this.repo, this.issueNumber).subscribe({
-      next: (data) => {
-        this.result.set(data);
-        this.silentReload();
-      }
-    });
-  }
-
-  getGitHubIssueUrl(): string {
-    return `https://github.com/${this.owner}/${this.repo}/issues/${this.issueNumber}`;
-  }
-
-  getStatusLabel(status: string): string {
-    switch (status) {
-      case 'Accepted': return '⏳ Na Fila';
-      case 'Processing': return '⚙️ Em Análise';
-      case 'Published': return '✅ Publicado no GitHub';
-      case 'HumanReviewRequired': return '⚠️ Revisão Humana';
-      default: return status;
-    }
-  }
-
-  getStatusBadgeClass(status: string): string {
-    switch (status) {
-      case 'Accepted': return 'badge-accepted';
-      case 'Processing': return 'badge-processing';
-      case 'Published': return 'badge-published';
-      case 'HumanReviewRequired': return 'badge-review';
-      default: return '';
-    }
   }
 }
