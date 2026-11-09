@@ -220,6 +220,46 @@ app.MapGet("/github/repos/{owner}/{repo}/issues", async (
     return Results.Ok(issues);
 });
 
+app.MapPost("/github/repos/{owner}/{repo}/issues", async (
+    string owner,
+    string repo,
+    [FromBody] CreateIssueRequest request,
+    [FromServices] IGitHubService gitHubService,
+    [FromServices] ReceiveEventUseCase receiveEventUseCase,
+    CancellationToken cancellationToken) =>
+{
+    if (string.IsNullOrWhiteSpace(request.Title))
+    {
+        return Results.BadRequest(new { error = "O título da issue é obrigatório." });
+    }
+
+    var issue = await gitHubService.CreateIssueAsync(owner, repo, request.Title, request.Body, cancellationToken);
+
+    // Enfileira automaticamente a triagem inicial para a nova issue criada
+    var eventId = $"issue-created-{owner}-{repo}-{issue.Number}-{DateTimeOffset.UtcNow.ToUnixTimeSeconds()}";
+    var dto = new IncomingIssueEventDto(
+        EventId: eventId,
+        Repository: $"{owner}/{repo}",
+        IssueNumber: issue.Number,
+        Title: issue.Title,
+        Description: issue.Body ?? string.Empty
+    );
+    await receiveEventUseCase.ExecuteAsync(dto, cancellationToken);
+
+    return Results.Created($"/github/repos/{owner}/{repo}/issues/{issue.Number}", issue);
+});
+
+app.MapDelete("/github/repos/{owner}/{repo}/issues/{issueNumber:int}", async (
+    string owner,
+    string repo,
+    int issueNumber,
+    [FromServices] IGitHubService gitHubService,
+    CancellationToken cancellationToken) =>
+{
+    var success = await gitHubService.DeleteOrCloseIssueAsync(owner, repo, issueNumber, cancellationToken);
+    return Results.Ok(new { success, message = $"Issue #{issueNumber} excluída/fechada no GitHub com sucesso." });
+});
+
 app.MapPost("/github/repos/{owner}/{repo}/issues/{issueNumber:int}/triage", async (
     string owner,
     string repo,

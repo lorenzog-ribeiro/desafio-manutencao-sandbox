@@ -131,6 +131,24 @@ export class TriageApiService {
     );
   }
 
+  public createIssue(owner: string, repo: string, title: string, body?: string): Observable<GitHubIssue> {
+    return this.http.post<GitHubIssue>(`${this.baseUrl}/github/repos/${owner}/${repo}/issues`, { title, body }).pipe(
+      tap(() => {
+        this.loadRepositoryIssues(owner, repo);
+        this.loadRecentJobs().subscribe();
+      })
+    );
+  }
+
+  public deleteIssue(owner: string, repo: string, issueNumber: number): Observable<{ success: boolean; message: string }> {
+    return this.http.delete<{ success: boolean; message: string }>(`${this.baseUrl}/github/repos/${owner}/${repo}/issues/${issueNumber}`).pipe(
+      tap(() => {
+        this.loadRepositoryIssues(owner, repo);
+        this.loadRecentJobs().subscribe();
+      })
+    );
+  }
+
   public getJobForIssue(repository: string, issueNumber: number): TriageResult | undefined {
     return this.recentJobs().find(
       j => j.repository.toLowerCase() === repository.toLowerCase() && j.issueNumber === issueNumber

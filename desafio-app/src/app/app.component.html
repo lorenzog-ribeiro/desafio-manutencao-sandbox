@@ -1,14 +1,29 @@
 <div class="app-layout">
   <header class="app-header">
     <div class="header-inner">
-      <div class="brand">
+      <a class="brand" routerLink="/dashboard" aria-label="AutoTriage — Ir para o Painel">
         <div class="brand-logo">
-          <span class="material-symbols-outlined icon-md" aria-hidden="true">monitor_heart</span>
+          <svg class="brand-svg" width="38" height="38" viewBox="0 0 38 38" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+            <defs>
+              <linearGradient id="logoBgGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#4F46E5"/>
+                <stop offset="100%" stop-color="#7C3AED"/>
+              </linearGradient>
+              <linearGradient id="logoSparkGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#38BDF8"/>
+                <stop offset="100%" stop-color="#67E8F9"/>
+              </linearGradient>
+            </defs>
+            <rect width="38" height="38" rx="10" fill="url(#logoBgGrad)"/>
+            <rect x="0.5" y="0.5" width="37" height="37" rx="9.5" stroke="rgba(255, 255, 255, 0.22)"/>
+            <path d="M8 20H13L16 12L22 26L25 17L27 20H30" stroke="#FFFFFF" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+            <path d="M28 6.5C28 8.4 29.4 9.8 31.3 9.8C29.4 9.8 28 11.2 28 13.1C28 11.2 26.6 9.8 24.7 9.8C26.6 9.8 28 8.4 28 6.5Z" fill="url(#logoSparkGrad)"/>
+          </svg>
         </div>
         <div class="brand-text">
           <span class="brand-name">AutoTriage</span>
         </div>
-      </div>
+      </a>
 
       <nav class="main-nav" aria-label="Navegação principal">
         <a class="nav" routerLink="/dashboard" routerLinkActive="nav-on">

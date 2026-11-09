@@ -152,4 +152,70 @@ public sealed class OctokitGitHubService : IGitHubService
             throw;
         }
     }
+
+    public async Task<GitHubIssueDto> CreateIssueAsync(
+        string owner,
+        string repo,
+        string title,
+        string? body,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_isConfigured || _client is null)
+        {
+            throw new InvalidOperationException("GitHub token is not configured.");
+        }
+
+        try
+        {
+            _logger.LogInformation("Creating new issue in {Owner}/{Repo}: '{Title}'", owner, repo, title);
+            var newIssue = new NewIssue(title)
+            {
+                Body = body ?? string.Empty
+            };
+
+            var issue = await _client.Issue.Create(owner, repo, newIssue);
+            return new GitHubIssueDto(
+                issue.Id,
+                issue.Number,
+                issue.Title,
+                issue.Body,
+                issue.State.StringValue,
+                issue.HtmlUrl,
+                issue.User?.Login,
+                issue.CreatedAt.UtcDateTime
+            );
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to create issue in {Owner}/{Repo}.", owner, repo);
+            throw;
+        }
+    }
+
+    public async Task<bool> DeleteOrCloseIssueAsync(
+        string owner,
+        string repo,
+        int issueNumber,
+        CancellationToken cancellationToken = default)
+    {
+        if (!_isConfigured || _client is null)
+        {
+            throw new InvalidOperationException("GitHub token is not configured.");
+        }
+
+        try
+        {
+            var endpoint = new Uri($"repos/{owner}/{repo}/issues/{issueNumber}", UriKind.Relative);
+            await _client.Connection.Delete(endpoint);
+            _logger.LogInformation("Successfully deleted issue #{IssueNumber} in {Owner}/{Repo}.", issueNumber, owner, repo);
+            return true;
+        }
+        catch
+        {
+            var update = new IssueUpdate { State = ItemState.Closed };
+            await _client.Issue.Update(owner, repo, issueNumber, update);
+            _logger.LogInformation("Successfully closed issue #{IssueNumber} in {Owner}/{Repo}.", issueNumber, owner, repo);
+            return true;
+        }
+    }
 }

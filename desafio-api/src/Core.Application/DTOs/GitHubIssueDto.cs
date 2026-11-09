@@ -10,3 +10,8 @@ public sealed record GitHubIssueDto(
     string? Author,
     DateTime CreatedAt
 );
+
+public sealed record CreateIssueRequest(
+    string Title,
+    string? Body
+);

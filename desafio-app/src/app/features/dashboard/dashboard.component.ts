@@ -154,6 +154,7 @@ import { CategoryFilter, CategoryKey, toTriageView } from '../../models/triage-v
   `,
   styles: [`
     .dash-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 16px; }
+    .dash-actions { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
     .metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 14px; }
     .metric {
       display: flex;

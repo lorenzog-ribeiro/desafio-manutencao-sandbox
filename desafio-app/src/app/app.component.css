@@ -26,6 +26,14 @@
   display: flex;
   align-items: center;
   gap: 12px;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+}
+
+.brand:hover {
+  opacity: 0.95;
 }
 
 .brand-logo {
@@ -33,12 +41,27 @@
   height: 38px;
   min-width: 38px;
   border-radius: 10px;
-  background: linear-gradient(135deg, var(--primary), var(--ai));
   display: flex;
   align-items: center;
   justify-content: center;
-  color: #ffffff;
   box-shadow: 0 2px 8px rgba(79, 70, 229, 0.25);
+  transition: transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.2s ease;
+}
+
+.brand:hover .brand-logo {
+  transform: translateY(-1px) scale(1.03);
+  box-shadow: 0 4px 14px rgba(79, 70, 229, 0.35);
+}
+
+.brand:active .brand-logo {
+  transform: translateY(0) scale(0.97);
+}
+
+.brand-svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 10px;
 }
 
 .brand-text {
@@ -51,12 +74,17 @@
   font-weight: 700;
   letter-spacing: -0.02em;
   color: var(--text-strong);
+  transition: color 0.15s ease;
+}
+
+.brand:hover .brand-name {
+  color: var(--primary);
 }
 
 .main-nav {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 12px;
 }
 
 .nav {
