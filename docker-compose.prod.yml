@@ -80,10 +80,10 @@ services:
     labels:
       - "traefik.enable=true"
       - "traefik.docker.network=dokploy-network"
-      - "traefik.http.routers.autotriage-http.rule=Host(`${APP_DOMAIN:-autotriage-app-zfy9kc-a624dd-137-131-166-114.sslip.io}`)"
+      - "traefik.http.routers.autotriage-http.rule=Host(`autotriage.usecaffe.com`) || Host(`${APP_DOMAIN:-autotriage-app-zfy9kc-a624dd-137-131-166-114.sslip.io}`)"
       - "traefik.http.routers.autotriage-http.entrypoints=web"
       - "traefik.http.routers.autotriage-http.service=autotriage"
-      - "traefik.http.routers.autotriage-https.rule=Host(`${APP_DOMAIN:-autotriage-app-zfy9kc-a624dd-137-131-166-114.sslip.io}`)"
+      - "traefik.http.routers.autotriage-https.rule=Host(`autotriage.usecaffe.com`) || Host(`${APP_DOMAIN:-autotriage-app-zfy9kc-a624dd-137-131-166-114.sslip.io}`)"
       - "traefik.http.routers.autotriage-https.entrypoints=websecure"
       - "traefik.http.routers.autotriage-https.tls=true"
       - "traefik.http.routers.autotriage-https.service=autotriage"
