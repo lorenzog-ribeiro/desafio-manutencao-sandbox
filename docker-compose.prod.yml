@@ -73,8 +73,6 @@ services:
     restart: unless-stopped
     depends_on:
       - api
-    ports:
-      - "${FRONTEND_PORT:-8085}:80"
     expose:
       - "80"
     labels:
