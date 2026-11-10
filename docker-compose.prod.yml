@@ -75,6 +75,16 @@ services:
       - api
     ports:
       - "${FRONTEND_PORT:-8085}:80"
+    expose:
+      - "80"
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=dokploy-network"
+      - "traefik.http.routers.autotriage.rule=Host(`${APP_DOMAIN:-autotriage-app-zfy9kc-a624dd-137-131-166-114.sslip.io}`)"
+      - "traefik.http.routers.autotriage.entrypoints=web,websecure"
+      - "traefik.http.routers.autotriage.tls=true"
+      - "traefik.http.routers.autotriage.tls.certresolver=letsencrypt"
+      - "traefik.http.services.autotriage.loadbalancer.server.port=80"
     networks:
       - autotriage-net
       - dokploy-network
