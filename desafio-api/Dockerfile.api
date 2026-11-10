@@ -21,4 +21,4 @@ COPY --from=build /app/publish .
 ENV ASPNETCORE_URLS=http://+:5012
 EXPOSE 5012
 
-ENTRYPOINT ["dotnet", "SoftwareTriage.Api.dll"]
+ENTRYPOINT ["dotnet", "Api.dll"]
