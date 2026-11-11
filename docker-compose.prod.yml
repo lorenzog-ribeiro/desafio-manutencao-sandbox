@@ -42,6 +42,7 @@ services:
       - '5012'
     networks:
       - autotriage-net
+      - dokploy-network
 
   # ========================================================
   # 3. Background Worker (Processa jobs da fila e aciona IA)
