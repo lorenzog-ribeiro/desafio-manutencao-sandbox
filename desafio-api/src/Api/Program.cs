@@ -88,12 +88,22 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Minimal API Endpoints
-app.MapGet("/health", () => Results.Ok(new
+app.MapGet("/health", (IConfiguration config) =>
 {
-    status = "Healthy",
-    service = "SoftwareTriage.Api",
-    timestamp = DateTime.UtcNow
-}));
+    var hasGithubToken = !string.IsNullOrWhiteSpace(config["GITHUB_TOKEN"]) &&
+                         !config["GITHUB_TOKEN"]!.StartsWith("ghp_seu_");
+    var hasGeminiKey = !string.IsNullOrWhiteSpace(config["GEMINI_API_KEY"]) &&
+                       !config["GEMINI_API_KEY"]!.StartsWith("AIzaSy_sua_");
+
+    return Results.Ok(new
+    {
+        status = "Healthy",
+        service = "SoftwareTriage.Api",
+        gitHubConfigured = hasGithubToken,
+        geminiConfigured = hasGeminiKey,
+        timestamp = DateTime.UtcNow
+    });
+});
 
 // ==========================================
 // 1. Direct normalized event ingest

@@ -19,7 +19,9 @@ public sealed class OctokitGitHubService : IGitHubService
                     ?? configuration["GITHUB_TOKEN"]
                     ?? Environment.GetEnvironmentVariable("GITHUB_TOKEN");
 
-        if (!string.IsNullOrWhiteSpace(token) && !token.Equals("mock", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(token) &&
+            !token.Equals("mock", StringComparison.OrdinalIgnoreCase) &&
+            !token.StartsWith("ghp_seu_", StringComparison.OrdinalIgnoreCase))
         {
             _client = new GitHubClient(new ProductHeaderValue("SoftwareTriageHub"))
             {
@@ -30,44 +32,94 @@ public sealed class OctokitGitHubService : IGitHubService
         }
         else
         {
-            _logger.LogWarning("GitHub token not configured or set to mock. GitHub live service running in unauthenticated mode.");
+            _client = new GitHubClient(new ProductHeaderValue("SoftwareTriageHub"));
             _isConfigured = false;
+            _logger.LogWarning("GitHub token not configured or set to placeholder. GitHub service running in unauthenticated mode (public repos only).");
         }
     }
 
+    private static readonly string[] DefaultCatalogRepos =
+    [
+        "lorenzog-ribeiro/desafio-manutencao-sandbox",
+        "lorenzog-ribeiro/PerfilRiscoInvestidor",
+        "EducandoSeuBolso/landing-page",
+        "kipperacademy/desafio-manutencao-sandbox"
+    ];
+
     public async Task<IReadOnlyList<GitHubRepoDto>> GetUserRepositoriesAsync(CancellationToken cancellationToken = default)
     {
-        if (!_isConfigured || _client is null)
-        {
-            _logger.LogWarning("Cannot fetch user repositories: GitHub token is not configured.");
-            return [];
-        }
+        List<GitHubRepoDto> results = [];
 
-        try
+        if (_isConfigured && _client is not null)
         {
-            _logger.LogInformation("Fetching authenticated user repositories from GitHub API...");
-            var repos = await _client.Repository.GetAllForCurrent(new RepositoryRequest
+            try
             {
-                Sort = RepositorySort.Updated,
-                Direction = SortDirection.Descending
-            });
+                _logger.LogInformation("Fetching authenticated user repositories from GitHub API...");
+                var repos = await _client.Repository.GetAllForCurrent(new RepositoryRequest
+                {
+                    Sort = RepositorySort.Updated,
+                    Direction = SortDirection.Descending
+                });
 
-            return repos.Select(r => new GitHubRepoDto(
-                r.Id,
-                r.Name,
-                r.FullName,
-                r.Owner.Login,
-                r.HtmlUrl,
-                r.Description,
-                r.OpenIssuesCount,
-                r.Private
-            )).ToList();
+                results.AddRange(repos.Select(r => new GitHubRepoDto(
+                    r.Id,
+                    r.Name,
+                    r.FullName,
+                    r.Owner.Login,
+                    r.HtmlUrl,
+                    r.Description,
+                    r.OpenIssuesCount,
+                    r.Private
+                )));
+            }
+            catch (Exception ex)
+            {
+                _logger.LogWarning(ex, "Failed to retrieve user repos via GetAllForCurrent. Falling back to catalog repositories.");
+            }
         }
-        catch (Exception ex)
+
+        // Se o token não estiver configurado ou se a listagem veio vazia, carrega os repositórios conhecidos do catálogo
+        if (results.Count == 0 && _client is not null)
         {
-            _logger.LogError(ex, "Failed to retrieve repositories from GitHub API.");
-            throw;
+            foreach (var repoFullName in DefaultCatalogRepos)
+            {
+                var parts = repoFullName.Split('/');
+                if (parts.Length != 2) continue;
+                var owner = parts[0];
+                var name = parts[1];
+
+                try
+                {
+                    var r = await _client.Repository.Get(owner, name);
+                    results.Add(new GitHubRepoDto(
+                        r.Id,
+                        r.Name,
+                        r.FullName,
+                        r.Owner.Login,
+                        r.HtmlUrl,
+                        r.Description,
+                        r.OpenIssuesCount,
+                        r.Private
+                    ));
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "Could not fetch public repo {Repo} from GitHub API, using fallback DTO.", repoFullName);
+                    results.Add(new GitHubRepoDto(
+                        (long)repoFullName.GetHashCode(),
+                        name,
+                        repoFullName,
+                        owner,
+                        $"https://github.com/{repoFullName}",
+                        "Repositório cadastrado para triagem de software.",
+                        0,
+                        false
+                    ));
+                }
+            }
         }
+
+        return results;
     }
 
     public async Task<IReadOnlyList<GitHubIssueDto>> GetRepositoryIssuesAsync(
@@ -75,9 +127,9 @@ public sealed class OctokitGitHubService : IGitHubService
         string repo,
         CancellationToken cancellationToken = default)
     {
-        if (!_isConfigured || _client is null)
+        if (_client is null)
         {
-            _logger.LogWarning("Cannot fetch repository issues: GitHub token is not configured.");
+            _logger.LogWarning("Cannot fetch repository issues: GitHub client is null.");
             return [];
         }
 
@@ -108,7 +160,7 @@ public sealed class OctokitGitHubService : IGitHubService
         catch (Exception ex)
         {
             _logger.LogError(ex, "Failed to retrieve issues for {Owner}/{Repo} from GitHub API.", owner, repo);
-            throw;
+            return [];
         }
     }
 
@@ -118,9 +170,9 @@ public sealed class OctokitGitHubService : IGitHubService
         int issueNumber,
         CancellationToken cancellationToken = default)
     {
-        if (!_isConfigured || _client is null)
+        if (_client is null)
         {
-            _logger.LogWarning("Cannot fetch issue: GitHub token is not configured.");
+            _logger.LogWarning("Cannot fetch issue: GitHub client is null.");
             return null;
         }
 
