@@ -1,4 +1,4 @@
-import { Component, OnDestroy, OnInit, computed, inject, signal } from '@angular/core';
+import { Component, OnInit, computed, inject, signal } from '@angular/core';
 import { DatePipe } from '@angular/common';
 import { FormsModule } from '@angular/forms';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
@@ -42,6 +42,10 @@ type IssueFilter = 'all' | 'triaged' | 'pending';
               <span class="material-symbols-outlined icon-xs" aria-hidden="true">{{ currentRepo()?.isPrivate ? 'lock' : 'public' }}</span>
               {{ currentRepo()?.isPrivate ? 'Privado' : 'Público' }}
             </span>
+            <button type="button" class="btn btn-sm btn-ghost" (click)="refreshIssues()" [disabled]="api.isLoadingGitHub()">
+              <span class="material-symbols-outlined icon-sm" aria-hidden="true">refresh</span>
+              Atualizar
+            </button>
             <a class="btn btn-sm btn-ghost" [href]="githubRepoUrl()" target="_blank" rel="noopener noreferrer">
               Ver no GitHub
               <span class="material-symbols-outlined icon-sm" aria-hidden="true">open_in_new</span>
@@ -418,7 +422,7 @@ type IssueFilter = 'all' | 'triaged' | 'pending';
     }
   `]
 })
-export class RepoIssuesComponent implements OnInit, OnDestroy {
+export class RepoIssuesComponent implements OnInit {
   private readonly route = inject(ActivatedRoute);
   private readonly router = inject(Router);
   public readonly api = inject(TriageApiService);
@@ -482,8 +486,6 @@ export class RepoIssuesComponent implements OnInit, OnDestroy {
     return this.currentRepo()?.htmlUrl ?? `https://github.com/${this.owner()}/${this.repo()}`;
   });
 
-  private refreshTimer: ReturnType<typeof setInterval> | null = null;
-
   ngOnInit(): void {
     this.route.paramMap.subscribe(params => {
       const owner = params.get('owner') || '';
@@ -495,17 +497,12 @@ export class RepoIssuesComponent implements OnInit, OnDestroy {
         this.api.selectRepository(`${owner}/${repo}`);
       }
     });
-
-    this.refreshTimer = setInterval(() => {
-      if (this.owner() && this.repo()) {
-        this.api.loadRepositoryIssues(this.owner(), this.repo());
-      }
-    }, 4000);
   }
 
-  ngOnDestroy(): void {
-    if (this.refreshTimer) {
-      clearInterval(this.refreshTimer);
+  public refreshIssues(): void {
+    if (this.owner() && this.repo()) {
+      this.api.loadRepositoryIssues(this.owner(), this.repo());
+      this.api.loadRecentJobs().subscribe();
     }
   }
 

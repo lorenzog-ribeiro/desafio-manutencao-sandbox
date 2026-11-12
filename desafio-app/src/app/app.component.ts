@@ -2,8 +2,6 @@ import { Component, OnDestroy, OnInit, inject } from '@angular/core';
 import { RouterOutlet, RouterLink, RouterLinkActive } from '@angular/router';
 import { TriageApiService } from './services/triage-api.service';
 
-const POLL_INTERVAL_MS = 3000;
-
 @Component({
   selector: 'app-root',
   standalone: true,
@@ -18,7 +16,16 @@ export class AppComponent implements OnInit, OnDestroy {
   ngOnInit(): void {
     this.poll();
     this.api.loadGitHubRepositories();
-    this.pollingTimer = setInterval(() => this.poll(), POLL_INTERVAL_MS);
+
+    // Polling inteligente: só pesquisa se houver jobs em andamento (Accepted ou Processing)
+    this.pollingTimer = setInterval(() => {
+      const hasPendingJobs = this.api.recentJobs().some(
+        j => j.status === 'Accepted' || j.status === 'Processing'
+      );
+      if (hasPendingJobs) {
+        this.api.loadRecentJobs().subscribe();
+      }
+    }, 5000);
   }
 
   ngOnDestroy(): void {
