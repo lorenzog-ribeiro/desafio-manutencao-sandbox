@@ -25,13 +25,17 @@ public sealed class AiHarnessEngine : IAiTriageEngine
         _logger = logger;
         _templateLoader = templateLoader;
 
-        var apiKey = configuration["Google:ApiKey"]
+        var apiKey = (configuration["Google:ApiKey"]
+                     ?? configuration["Gemini:ApiKey"]
                      ?? configuration["GEMINI_API_KEY"]
-                     ?? System.Environment.GetEnvironmentVariable("GEMINI_API_KEY");
+                     ?? System.Environment.GetEnvironmentVariable("GEMINI_API_KEY")
+                     ?? string.Empty).Trim('"', '\'', ' ', '\r', '\n');
 
         _modelName = configuration["Google:Model"] ?? "gemini-2.5-flash";
 
-        if (!string.IsNullOrWhiteSpace(apiKey) && !apiKey.Equals("mock", StringComparison.OrdinalIgnoreCase))
+        if (!string.IsNullOrWhiteSpace(apiKey) &&
+            !apiKey.Equals("mock", StringComparison.OrdinalIgnoreCase) &&
+            !apiKey.StartsWith("AIzaSy_sua_", StringComparison.OrdinalIgnoreCase))
         {
             try
             {

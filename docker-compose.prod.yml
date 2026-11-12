@@ -13,7 +13,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-triage_db}']
+      test: ['CMD-SHELL', 'pg_isready -U postgres || pg_isready -U ${POSTGRES_USER:-postgres}']
       interval: 5s
       timeout: 5s
       retries: 5
@@ -30,13 +30,22 @@ services:
     container_name: autotriage-api
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
     environment:
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-triage_db};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+      DATABASE_URL: ${DATABASE_URL:-}
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-triage_db}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GitHub__Token: ${GITHUB_TOKEN:-${GitHub__Token:-}}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
-      GitHub__WebhookSecret: ${GITHUB_WEBHOOK_SECRET:-}
+      Google__ApiKey: ${GEMINI_API_KEY:-${Google__ApiKey:-}}
+      Gemini__ApiKey: ${GEMINI_API_KEY:-${Gemini__ApiKey:-}}
+      GITHUB_WEBHOOK_SECRET: ${GITHUB_WEBHOOK_SECRET:-${GitHub__WebhookSecret:-}}
+      GitHub__WebhookSecret: ${GITHUB_WEBHOOK_SECRET:-${GitHub__WebhookSecret:-}}
       Cors__AllowedOrigins: "*"
     expose:
       - '5012'
@@ -54,12 +63,20 @@ services:
     container_name: autotriage-worker
     restart: unless-stopped
     depends_on:
-      postgres:
-        condition: service_healthy
+      - postgres
     environment:
       ConnectionStrings__DefaultConnection: Host=postgres;Port=5432;Database=${POSTGRES_DB:-triage_db};Username=${POSTGRES_USER:-postgres};Password=${POSTGRES_PASSWORD:-postgres}
+      DATABASE_URL: ${DATABASE_URL:-}
+      POSTGRES_HOST: ${POSTGRES_HOST:-postgres}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-triage_db}
       GITHUB_TOKEN: ${GITHUB_TOKEN:-}
+      GitHub__Token: ${GITHUB_TOKEN:-${GitHub__Token:-}}
       GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      Google__ApiKey: ${GEMINI_API_KEY:-${Google__ApiKey:-}}
+      Gemini__ApiKey: ${GEMINI_API_KEY:-${Gemini__ApiKey:-}}
     networks:
       - autotriage-net
 

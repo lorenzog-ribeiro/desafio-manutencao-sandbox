@@ -22,8 +22,38 @@ EnvLoader.Load();
 var builder = WebApplication.CreateBuilder(args);
 
 // Database configuration
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
-    ?? "Host=localhost;Port=5432;Database=triage_db;Username=postgres;Password=postgres";
+var rawConnectionString = builder.Configuration.GetConnectionString("DefaultConnection")
+    ?? builder.Configuration["DATABASE_URL"]
+    ?? Environment.GetEnvironmentVariable("DATABASE_URL")
+    ?? Environment.GetEnvironmentVariable("ConnectionStrings__DefaultConnection");
+
+string connectionString;
+if (!string.IsNullOrWhiteSpace(rawConnectionString) &&
+    (rawConnectionString.StartsWith("postgres://", StringComparison.OrdinalIgnoreCase) ||
+     rawConnectionString.StartsWith("postgresql://", StringComparison.OrdinalIgnoreCase)))
+{
+    var uri = new Uri(rawConnectionString);
+    var userInfo = uri.UserInfo.Split(':');
+    var user = userInfo[0];
+    var pass = userInfo.Length > 1 ? userInfo[1] : "";
+    var dbHost = uri.Host;
+    var port = uri.Port > 0 ? uri.Port : 5432;
+    var db = uri.AbsolutePath.TrimStart('/');
+    connectionString = $"Host={dbHost};Port={port};Database={db};Username={user};Password={pass}";
+}
+else if (!string.IsNullOrWhiteSpace(rawConnectionString))
+{
+    connectionString = rawConnectionString;
+}
+else
+{
+    var pgHost = builder.Configuration["POSTGRES_HOST"] ?? Environment.GetEnvironmentVariable("POSTGRES_HOST") ?? "postgres";
+    var pgPort = builder.Configuration["POSTGRES_PORT"] ?? Environment.GetEnvironmentVariable("POSTGRES_PORT") ?? "5432";
+    var pgDb = builder.Configuration["POSTGRES_DB"] ?? Environment.GetEnvironmentVariable("POSTGRES_DB") ?? "triage_db";
+    var pgUser = builder.Configuration["POSTGRES_USER"] ?? Environment.GetEnvironmentVariable("POSTGRES_USER") ?? "postgres";
+    var pgPass = builder.Configuration["POSTGRES_PASSWORD"] ?? Environment.GetEnvironmentVariable("POSTGRES_PASSWORD") ?? "postgres";
+    connectionString = $"Host={pgHost};Port={pgPort};Database={pgDb};Username={pgUser};Password={pgPass}";
+}
 
 builder.Services.AddDbContext<TriageDbContext>(options =>
 {
@@ -88,19 +118,48 @@ using (var scope = app.Services.CreateScope())
 }
 
 // Minimal API Endpoints
-app.MapGet("/health", (IConfiguration config) =>
+app.MapGet("/health", (IConfiguration config, IServiceProvider sp) =>
 {
-    var hasGithubToken = !string.IsNullOrWhiteSpace(config["GITHUB_TOKEN"]) &&
-                         !config["GITHUB_TOKEN"]!.StartsWith("ghp_seu_");
-    var hasGeminiKey = !string.IsNullOrWhiteSpace(config["GEMINI_API_KEY"]) &&
-                       !config["GEMINI_API_KEY"]!.StartsWith("AIzaSy_sua_");
+    var githubToken = (config["GitHub:Token"]
+                      ?? config["GITHUB_TOKEN"]
+                      ?? Environment.GetEnvironmentVariable("GITHUB_TOKEN")
+                      ?? string.Empty).Trim('"', '\'', ' ', '\r', '\n');
+
+    var geminiKey = (config["Google:ApiKey"]
+                    ?? config["Gemini:ApiKey"]
+                    ?? config["GEMINI_API_KEY"]
+                    ?? Environment.GetEnvironmentVariable("GEMINI_API_KEY")
+                    ?? string.Empty).Trim('"', '\'', ' ', '\r', '\n');
+
+    var hasGithubToken = !string.IsNullOrWhiteSpace(githubToken) &&
+                         !githubToken.StartsWith("ghp_seu_", StringComparison.OrdinalIgnoreCase) &&
+                         !githubToken.Equals("mock", StringComparison.OrdinalIgnoreCase);
+
+    var hasGeminiKey = !string.IsNullOrWhiteSpace(geminiKey) &&
+                       !geminiKey.StartsWith("AIzaSy_sua_", StringComparison.OrdinalIgnoreCase) &&
+                       !geminiKey.Equals("mock", StringComparison.OrdinalIgnoreCase);
+
+    bool dbConnected = false;
+    try
+    {
+        using var scope = sp.CreateScope();
+        var db = scope.ServiceProvider.GetRequiredService<TriageDbContext>();
+        dbConnected = db.Database.CanConnect();
+    }
+    catch
+    {
+        dbConnected = false;
+    }
 
     return Results.Ok(new
     {
         status = "Healthy",
         service = "SoftwareTriage.Api",
+        databaseConnected = dbConnected,
         gitHubConfigured = hasGithubToken,
+        gitHubTokenLength = githubToken.Length,
         geminiConfigured = hasGeminiKey,
+        geminiKeyLength = geminiKey.Length,
         timestamp = DateTime.UtcNow
     });
 });

@@ -15,9 +15,10 @@ public sealed class OctokitGitHubService : IGitHubService
     public OctokitGitHubService(IConfiguration configuration, ILogger<OctokitGitHubService> logger)
     {
         _logger = logger;
-        var token = configuration["GitHub:Token"]
+        var token = (configuration["GitHub:Token"]
                     ?? configuration["GITHUB_TOKEN"]
-                    ?? Environment.GetEnvironmentVariable("GITHUB_TOKEN");
+                    ?? Environment.GetEnvironmentVariable("GITHUB_TOKEN")
+                    ?? string.Empty).Trim('"', '\'', ' ', '\r', '\n');
 
         if (!string.IsNullOrWhiteSpace(token) &&
             !token.Equals("mock", StringComparison.OrdinalIgnoreCase) &&
